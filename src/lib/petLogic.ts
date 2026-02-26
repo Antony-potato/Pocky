@@ -35,13 +35,13 @@ export function applyTick(s: PetData, now = Date.now()): Partial<PetData> {
   let { hunger, happiness, cleanliness, energy, health } = s;
 
   if (!s.isAsleep) {
-    hunger      = clamp(hunger - mins * 0.8);
-    happiness   = clamp(happiness - mins * 0.5);
-    cleanliness = clamp(cleanliness - mins * 0.3);
-    energy      = clamp(energy - mins * 0.4);
+    hunger      = clamp(hunger - mins * 0.1);    // 6 pts/hora (igual)
+    happiness   = clamp(happiness - mins * 0.15);// 9 pts/hora (igual)
+    cleanliness = clamp(cleanliness - mins * 0.1); // 6 pts/hora (Baño cada 16h)
+    energy      = clamp(energy - mins * 0.12);   // 7.2 pts/hora (Sueño cada 13-14h)
   } else {
-    energy = clamp(energy + mins * 0.6);
-    hunger = clamp(hunger - mins * 0.3);
+    energy = clamp(energy + mins * 0.3); // 18 pts/hora (igual)
+    hunger = clamp(hunger - mins * 0.05); // 3 pts/hora (igual)
   }
 
   const lowCount = [hunger, happiness, cleanliness].filter(v => v < 20).length;
