@@ -1,36 +1,63 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { usePetStore } from '@/store/petStore';
 import PetAvatar from './PetAvatar';
+import CircularStats from './CircularStats';
 import { MOOD_MSG } from '@/lib/sprites';
 import { requestNotificationPermission } from '@/lib/messaging';
 import { computeAge } from '@/lib/petLogic';
+import { getTimeBackground } from '@/lib/timeBackground';
 import {
   Beef, Candy, ShowerHead, TreePalm, Gamepad2, Moon, Sun,
-  Bell, PawPrint, Heart, Smile, Droplets, Zap, Bone,
-  UtensilsCrossed, Bath as BathIcon, AlertTriangle
+  Bell, PawPrint,
+  UtensilsCrossed, AlertTriangle, Droplets
 } from 'lucide-react';
 
 const ACTIVITY_LABEL: Record<string, { label: string; icon: React.ReactNode }> = {
-  eating:   { label: 'comiendo',   icon: <UtensilsCrossed size={14} className="inline" /> },
-  bathing:  { label: 'bañándose',  icon: <ShowerHead size={14} className="inline" /> },
-  walking:  { label: 'paseando',   icon: <TreePalm size={14} className="inline" /> },
-  playing:  { label: 'jugando',    icon: <Gamepad2 size={14} className="inline" /> },
-  sleeping: { label: 'durmiendo',  icon: <Moon size={14} className="inline" /> },
+  eating: { label: 'comiendo', icon: <UtensilsCrossed size={14} className="inline" /> },
+  bathing: { label: 'bañándose', icon: <ShowerHead size={14} className="inline" /> },
+  walking: { label: 'paseando', icon: <TreePalm size={14} className="inline" /> },
+  playing: { label: 'jugando', icon: <Gamepad2 size={14} className="inline" /> },
+  sleeping: { label: 'durmiendo', icon: <Moon size={14} className="inline" /> },
 };
 
-// Iconos y colores para las alertas de necesidades
 const NEED_ICONS: Record<string, { icon: React.ReactNode }> = {
-  hunger: { icon: <Bone size={14} className="text-orange-600" /> },
-  bath:   { icon: <Droplets size={14} className="text-sky-600" /> },
-  play:   { icon: <Gamepad2 size={14} className="text-fuchsia-600" /> },
-  sleep:  { icon: <Moon size={14} className="text-indigo-600" /> },
+  hunger: { icon: <Beef size={14} className="text-orange-600" /> },
+  bath: { icon: <Droplets size={14} className="text-sky-600" /> },
+  play: { icon: <Gamepad2 size={14} className="text-fuchsia-600" /> },
+  sleep: { icon: <Moon size={14} className="text-indigo-600" /> },
 };
+
+// Floating hearts on pet tap
+function FloatingHearts({ count }: { count: number }) {
+  if (count === 0) return null;
+  return (
+    <div className="absolute inset-0 pointer-events-none z-30 overflow-hidden">
+      {Array.from({ length: Math.min(count * 3, 12) }).map((_, i) => (
+        <span
+          key={`${count}-${i}`}
+          className="absolute text-lg animate-float-up"
+          style={{
+            left: `${30 + Math.random() * 40}%`,
+            bottom: '30%',
+            animationDelay: `${i * 0.12}s`,
+            opacity: 0,
+          }}
+        >
+          ❤️
+        </span>
+      ))}
+    </div>
+  );
+}
 
 export default function PetScreen() {
   const pet = usePetStore();
   const [isMounted, setIsMounted] = useState(false);
+  const [heartTaps, setHeartTaps] = useState(0);
   const petAge = isMounted ? computeAge(pet.createdAt || Date.now()) : 0;
+  const currentHour = isMounted ? new Date().getHours() : 10;
+  const timeBg = getTimeBackground(pet.isAsleep ? 22 : currentHour);
 
   useEffect(() => { setIsMounted(true); }, []);
 
@@ -65,97 +92,133 @@ export default function PetScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMounted]);
 
+  const handlePetTap = useCallback(() => {
+    setHeartTaps(prev => prev + 1);
+    // Haptic feedback
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(30);
+    }
+  }, []);
+
   const actions = [
-    { id: 'feed',  icon: <Beef size={24} />,      iconColor: 'text-orange-500', label: 'Alimentar', onPress: () => pet.feed('normal'), disabled: pet.activity !== 'idle' },
-    { id: 'treat', icon: <Candy size={24} />,      iconColor: 'text-pink-400',   label: 'Golosina',  onPress: () => pet.feed('treat'),  disabled: pet.activity !== 'idle' },
-    { id: 'bath',  icon: <ShowerHead size={24} />,  iconColor: 'text-sky-400',    label: 'Bañar',     onPress: pet.bathe,                disabled: pet.activity !== 'idle' },
-    { id: 'walk',  icon: <TreePalm size={24} />,    iconColor: 'text-emerald-500',label: 'Pasear',    onPress: pet.walk,                 disabled: pet.activity !== 'idle' || pet.energy < 15 },
-    { id: 'play',  icon: <Gamepad2 size={24} />,    iconColor: 'text-fuchsia-500',label: 'Jugar',     onPress: pet.play,                 disabled: pet.activity !== 'idle' || pet.energy < 10 },
+    { id: 'feed', icon: <Beef size={22} />, gradient: 'from-orange-400 to-amber-300', label: 'Alimentar', onPress: () => pet.feed('normal'), disabled: pet.activity !== 'idle' },
+    { id: 'treat', icon: <Candy size={22} />, gradient: 'from-pink-400 to-rose-300', label: 'Golosina', onPress: () => pet.feed('treat'), disabled: pet.activity !== 'idle' },
+    { id: 'bath', icon: <ShowerHead size={22} />, gradient: 'from-sky-400 to-cyan-300', label: 'Bañar', onPress: pet.bathe, disabled: pet.activity !== 'idle' },
+    { id: 'walk', icon: <TreePalm size={22} />, gradient: 'from-emerald-400 to-green-300', label: 'Pasear', onPress: pet.walk, disabled: pet.activity !== 'idle' || pet.energy < 15 },
+    { id: 'play', icon: <Gamepad2 size={22} />, gradient: 'from-fuchsia-400 to-purple-300', label: 'Jugar', onPress: pet.play, disabled: pet.activity !== 'idle' || pet.energy < 10 },
     {
-      id:        pet.isAsleep ? 'wake' : 'sleep',
-      icon:      pet.isAsleep ? <Sun size={24} /> : <Moon size={24} />,
-      iconColor: pet.isAsleep ? 'text-yellow-500' : 'text-indigo-400',
-      label:     pet.isAsleep ? 'Despertar' : 'Dormir',
-      onPress:   pet.isAsleep ? pet.wakeUp : pet.putToSleep,
+      id: pet.isAsleep ? 'wake' : 'sleep',
+      icon: pet.isAsleep ? <Sun size={22} /> : <Moon size={22} />,
+      gradient: pet.isAsleep ? 'from-yellow-400 to-amber-300' : 'from-indigo-400 to-violet-300',
+      label: pet.isAsleep ? 'Despertar' : 'Dormir',
+      onPress: pet.isAsleep ? pet.wakeUp : pet.putToSleep,
     },
   ];
 
   if (!isMounted) {
     return (
       <main className="h-dvh bg-cream flex justify-center items-center">
-        <p className="font-mono text-gray-500 animate-pulse">Despertando a Pocky...</p>
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-12 h-12 border-4 border-amber-300 border-t-transparent rounded-full animate-spin" />
+          <p className="font-outfit font-semibold text-gray-500 animate-pulse">Despertando a Pocky...</p>
+        </div>
       </main>
     );
   }
 
   return (
-    <main className="h-dvh bg-cream flex flex-col overflow-hidden relative">
-
-      {/* ===== ZONA SUPERIOR: Pet area ===== */}
-      <div className="flex-1 relative flex flex-col items-center justify-center px-4">
-
-        {/* HUD superior izquierdo: Stats compactos */}
-        <div className="absolute top-4 left-4 bg-white/70 backdrop-blur-md rounded-2xl px-3 py-2 shadow-sm z-10">
-          <div className="flex items-center gap-1.5 mb-1">
-            <div className={`w-2 h-2 rounded-full ${pet.isConnected ? 'bg-green-400' : 'bg-red-400'}`} />
-            <span className="text-xs font-bold text-gray-700">{pet.name}</span>
-            <PawPrint size={10} className="text-gray-400" />
-            <span className="text-[10px] text-gray-400">{petAge}d</span>
-          </div>
-          <div className="flex flex-col gap-1">
-            {[
-              { icon: <Bone size={10} className="text-orange-500" />, value: pet.hunger, color: 'bg-orange-400', key: 'hunger' },
-              { icon: <Smile size={10} className="text-green-500" />, value: pet.happiness, color: 'bg-green-400', key: 'happy' },
-              { icon: <Droplets size={10} className="text-sky-500" />, value: pet.cleanliness, color: 'bg-sky-400', key: 'clean' },
-              { icon: <Zap size={10} className="text-yellow-500" />, value: pet.energy, color: 'bg-yellow-400', key: 'energy' },
-              { icon: <Heart size={10} className="text-red-400" />, value: pet.health, color: 'bg-red-400', key: 'health' },
-            ].map(s => (
-              <div key={s.key} className="flex items-center gap-1">
-                {s.icon}
-                <div className="w-16 bg-gray-200 rounded-full h-1.5 overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all duration-500 ${s.value < 20 ? 'bg-red-400' : s.color}`}
-                    style={{ width: `${s.value}%` }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
+    <main
+      className="h-dvh flex flex-col overflow-hidden relative transition-all duration-1000"
+      style={timeBg.bgStyle}
+    >
+      {/* Night stars */}
+      {timeBg.isNight && (
+        <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+          {Array.from({ length: 30 }).map((_, i) => (
+            <div
+              key={i}
+              className="absolute w-1 h-1 bg-white rounded-full animate-twinkle"
+              style={{
+                top: `${Math.random() * 60}%`,
+                left: `${Math.random() * 100}%`,
+                animationDelay: `${Math.random() * 3}s`,
+                opacity: 0.4 + Math.random() * 0.6,
+                width: `${1 + Math.random() * 2}px`,
+                height: `${1 + Math.random() * 2}px`,
+              }}
+            />
+          ))}
         </div>
+      )}
 
-        {/* HUD superior derecho: Notificación */}
+      {/* ===== TOP BAR: Name + Notification ===== */}
+      <div className="flex items-center justify-between px-4 pt-4 pb-1 z-10">
+        <div className="flex items-center gap-2">
+          <div className={`w-2.5 h-2.5 rounded-full shadow-sm ${pet.isConnected ? 'bg-green-400' : 'bg-red-400'}`} />
+          <h1 className={`font-outfit font-bold text-lg ${timeBg.isNight ? 'text-white' : 'text-gray-800'}`}>
+            {pet.name}
+          </h1>
+          <PawPrint size={14} className={timeBg.isNight ? 'text-white/40' : 'text-gray-400'} />
+          <span className={`text-xs font-inter ${timeBg.isNight ? 'text-white/50' : 'text-gray-400'}`}>{petAge}d</span>
+        </div>
         <button
           onClick={handleEnableNotifications}
-          className="absolute top-4 right-4 bg-white/70 backdrop-blur-md rounded-full w-10 h-10 flex items-center justify-center shadow-sm z-10 active:scale-90 transition-transform"
+          className="bg-white/20 backdrop-blur-md rounded-full w-9 h-9 flex items-center justify-center shadow-sm active:scale-90 transition-transform border border-white/30"
           title="Activar notificaciones"
         >
-          <Bell size={18} className="text-amber-500" />
+          <Bell size={16} className={timeBg.isNight ? 'text-amber-300' : 'text-amber-500'} />
         </button>
+      </div>
 
-        {/* Burbuja de diálogo flotante */}
-        <div className="relative mb-2 z-10">
-          <div className="bg-white rounded-2xl px-4 py-2 shadow-md border border-amber-100 relative">
-            <p className="text-gray-600 font-medium text-sm text-center whitespace-nowrap">
+      {/* ===== STATS ROW: Circular rings ===== */}
+      <div className="px-2 py-2 z-10">
+        <CircularStats
+          hunger={pet.hunger}
+          happiness={pet.happiness}
+          cleanliness={pet.cleanliness}
+          energy={pet.energy}
+          health={pet.health}
+        />
+      </div>
+
+      {/* ===== PET AREA ===== */}
+      <div className="flex-1 relative flex flex-col items-center justify-center px-4">
+
+        {/* Speech bubble */}
+        <div className="relative mb-3 z-10">
+          <div className={`rounded-2xl px-4 py-2 shadow-md border relative
+            ${timeBg.isNight
+              ? 'bg-white/10 backdrop-blur-md border-white/20'
+              : 'bg-white/80 backdrop-blur-md border-amber-100'
+            }`}>
+            <p className={`font-caveat font-semibold text-base text-center whitespace-nowrap
+              ${timeBg.isNight ? 'text-white' : 'text-gray-600'}`}>
               {MOOD_MSG[pet.mood] || '...'}
             </p>
-            <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[8px] border-r-[8px] border-t-[8px] border-l-transparent border-r-transparent border-t-white" />
+            <div className={`absolute -bottom-2 left-1/2 -translate-x-1/2 w-0 h-0
+              border-l-[8px] border-r-[8px] border-t-[8px]
+              border-l-transparent border-r-transparent
+              ${timeBg.isNight ? 'border-t-white/10' : 'border-t-white/80'}`} />
           </div>
         </div>
 
-        {/* Mascota Grande y centrada */}
-        <PetAvatar species={pet.species} mood={pet.mood} activity={pet.activity} />
+        {/* Pet Avatar (tappable) */}
+        <div onClick={handlePetTap} className="cursor-pointer relative">
+          <PetAvatar species={pet.species} mood={pet.mood} activity={pet.activity} />
+          <FloatingHearts count={heartTaps} />
+        </div>
 
-        {/* Banner de actividad flotante */}
+        {/* Activity banner */}
         {pet.activity !== 'idle' && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-purple/90 backdrop-blur-sm rounded-full px-5 py-2 shadow-lg z-10 flex items-center gap-2">
             {ACTIVITY_LABEL[pet.activity]?.icon}
-            <p className="text-white font-bold text-sm animate-pulse whitespace-nowrap">
+            <p className="text-white font-outfit font-bold text-sm animate-pulse whitespace-nowrap">
               {pet.name} está {ACTIVITY_LABEL[pet.activity]?.label}...
             </p>
           </div>
         )}
 
-        {/* Alertas de necesidades flotantes */}
+        {/* Needs alerts */}
         {pet.needs && pet.needs.length > 0 && (
           <div className="absolute bottom-4 right-4 flex flex-col gap-1 z-10">
             {pet.needs.map(n => (
@@ -163,9 +226,9 @@ export default function PetScreen() {
                 key={n.id}
                 className={`rounded-full px-3 py-1 text-xs font-bold text-gray-800 shadow-md animate-pulse flex items-center gap-1.5
                   ${n.urgency === 'critical' ? 'bg-red-300' :
-                    n.urgency === 'high'     ? 'bg-orange-200' : 'bg-yellow-100'}`}
+                    n.urgency === 'high' ? 'bg-orange-200' : 'bg-yellow-100'}`}
               >
-                {n.urgency === 'critical' 
+                {n.urgency === 'critical'
                   ? <AlertTriangle size={12} className="text-red-600" />
                   : NEED_ICONS[n.id]?.icon}
                 {n.message}
@@ -175,30 +238,45 @@ export default function PetScreen() {
         )}
       </div>
 
-      {/* ===== ZONA INFERIOR: Bottom Sheet con acciones ===== */}
-      <div className="bg-white rounded-t-[2rem] shadow-[0_-4px_20px_rgba(0,0,0,0.08)] px-5 pt-4 pb-6 z-20">
-        <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-4" />
-        <h2 className="font-bold text-gray-700 text-sm mb-3 px-1">Cuidados</h2>
-        <div className="grid grid-cols-3 gap-3">
+      {/* ===== BOTTOM SHEET: Actions ===== */}
+      <div className={`rounded-t-[2rem] shadow-[0_-4px_24px_rgba(0,0,0,0.1)] px-5 pt-4 pb-6 z-20
+        ${timeBg.isNight
+          ? 'bg-gray-900/80 backdrop-blur-xl border-t border-white/10'
+          : 'bg-white/90 backdrop-blur-xl'
+        }`}>
+        <div className={`w-10 h-1 rounded-full mx-auto mb-3 ${timeBg.isNight ? 'bg-white/20' : 'bg-gray-300'}`} />
+        <h2 className={`font-outfit font-bold text-sm mb-3 px-1 ${timeBg.isNight ? 'text-white/70' : 'text-gray-600'}`}>
+          Cuidados
+        </h2>
+        <div className="grid grid-cols-3 gap-2.5">
           {actions.map((a) => {
             const off = a.disabled || (pet.isAsleep && a.id !== 'wake');
             return (
               <button
                 key={a.id}
-                onClick={() => !off && a.onPress()}
+                onClick={() => {
+                  if (off) return;
+                  // Haptic feedback on action
+                  if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                    navigator.vibrate(50);
+                  }
+                  a.onPress();
+                }}
                 disabled={off}
                 className={`
                   flex flex-col items-center justify-center gap-1.5
-                  rounded-2xl p-3 shadow-sm border border-gray-100
-                  font-semibold text-xs
-                  transition-all duration-150 active:scale-95
+                  rounded-2xl p-3 shadow-sm
+                  font-outfit font-semibold text-xs
+                  transition-all duration-200 active:scale-90
                   ${off
-                    ? 'bg-gray-50 text-gray-300 cursor-not-allowed'
-                    : 'bg-white text-gray-700 hover:bg-amber-50 hover:border-amber-200 cursor-pointer'
+                    ? timeBg.isNight
+                      ? 'bg-white/5 text-white/20 cursor-not-allowed'
+                      : 'bg-gray-50 text-gray-300 cursor-not-allowed'
+                    : `bg-gradient-to-br ${a.gradient} text-white shadow-md hover:shadow-lg hover:scale-[1.02] cursor-pointer`
                   }
                 `}
               >
-                <span className={off ? 'text-gray-300' : a.iconColor}>{a.icon}</span>
+                <span>{a.icon}</span>
                 <span>{a.label}</span>
               </button>
             );
