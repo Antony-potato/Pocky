@@ -92,10 +92,26 @@ export default function PetScreen() {
         </div>
 
         {/* Burbuja de diálogo */}
-        <div className="bg-white rounded-2xl px-4 py-3 border border-amber-200 shadow-sm">
-          <p className="text-center text-gray-600 font-medium font-mono text-sm">
+        <div className="bg-white rounded-2xl px-4 py-3 border border-amber-200 shadow-sm flex items-center justify-between gap-2">
+          <p className="text-center text-gray-600 font-medium font-mono text-sm flex-1">
             {MOOD_MSG[pet.mood] || '...'}
           </p>
+          <button
+            onClick={() => {
+              requestFCMToken().then(token => {
+                if (token) {
+                  usePetStore.getState().registerFCMToken(token);
+                  alert('¡Notificaciones activadas! 🔔');
+                } else {
+                  alert('No se pudieron activar las notificaciones. Revisa los permisos de tu navegador.');
+                }
+              });
+            }}
+            className="text-lg opacity-60 hover:opacity-100 active:scale-110 transition-all"
+            title="Activar notificaciones"
+          >
+            🔔
+          </button>
         </div>
 
         {/* Avatar */}
