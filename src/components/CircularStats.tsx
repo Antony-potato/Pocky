@@ -1,4 +1,5 @@
 'use client';
+import { Bone, Smile, Droplets, Zap, Heart } from 'lucide-react';
 
 interface CircularStatProps {
   icon: React.ReactNode;
@@ -59,35 +60,35 @@ export default function CircularStats({ hunger, happiness, cleanliness, energy, 
   return (
     <div className="flex items-center justify-center gap-3">
       <CircularStat
-        icon={<span className="text-lg">🍖</span>}
+        icon={<Bone size={20} className="text-orange-500" />}
         value={hunger}
         color="text-orange-400"
         strokeColor="#fb923c"
         label="Hambre"
       />
       <CircularStat
-        icon={<span className="text-lg">😊</span>}
+        icon={<Smile size={20} className="text-green-500" />}
         value={happiness}
         color="text-green-400"
         strokeColor="#4ade80"
         label="Felicidad"
       />
       <CircularStat
-        icon={<span className="text-lg">💧</span>}
+        icon={<Droplets size={20} className="text-sky-500" />}
         value={cleanliness}
         color="text-sky-400"
         strokeColor="#38bdf8"
         label="Limpieza"
       />
       <CircularStat
-        icon={<span className="text-lg">⚡</span>}
+        icon={<Zap size={20} className="text-yellow-500" />}
         value={energy}
         color="text-yellow-400"
         strokeColor="#facc15"
         label="Energía"
       />
       <CircularStat
-        icon={<span className="text-lg">❤️</span>}
+        icon={<Heart size={20} className="text-red-400" />}
         value={health}
         color="text-red-400"
         strokeColor="#f87171"

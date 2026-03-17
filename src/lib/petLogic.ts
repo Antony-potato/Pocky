@@ -27,7 +27,6 @@ export function getNeeds(s: PetData): PetNeed[] {
   return needs;
 }
 
-// Calcula la degradación por tiempo transcurrido
 export function applyTick(s: PetData, now = Date.now()): Partial<PetData> {
   const mins = (now - s.lastUpdated) / 60000;
   if (mins < 1) return {};
@@ -35,14 +34,13 @@ export function applyTick(s: PetData, now = Date.now()): Partial<PetData> {
   let { hunger, happiness, cleanliness, energy, health } = s;
 
   if (!s.isAsleep) {
-    // Velocidad a 1.3x más rápida que el original
-    hunger      = clamp(hunger - mins * 0.13);   // 7.8 pts/hora 
-    happiness   = clamp(happiness - mins * 0.195);// 11.7 pts/hora 
-    cleanliness = clamp(cleanliness - mins * 0.13); // 7.8 pts/hora
-    energy      = clamp(energy - mins * 0.156);   // 9.36 pts/hora 
+    hunger = clamp(hunger - mins * 0.13);
+    happiness = clamp(happiness - mins * 0.195);
+    cleanliness = clamp(cleanliness - mins * 0.13);
+    energy = clamp(energy - mins * 0.156);
   } else {
-    energy = clamp(energy + mins * 0.39); // Velocidad recuperación 1.3x
-    hunger = clamp(hunger - mins * 0.065); // Desgaste durmiendo 1.3x
+    energy = clamp(energy + mins * 0.39);
+    hunger = clamp(hunger - mins * 0.065);
   }
 
   const lowCount = [hunger, happiness, cleanliness].filter(v => v < 20).length;
@@ -56,29 +54,28 @@ export function applyTick(s: PetData, now = Date.now()): Partial<PetData> {
     lastUpdated: now,
     isAsleep: energy >= 95 ? false : s.isAsleep,
     activity: energy >= 95 ? 'idle' : s.activity,
-    mood:     getMood(next as PetData),
+    mood: getMood(next as PetData),
   };
 }
 
 export const DEFAULT_PET: PetData = {
-  name:            'Pocky',
-  species:         'bunny',
-  hunger:          80,
-  happiness:       70,
-  cleanliness:     90,
-  energy:          85,
-  health:          100,
-  mood:            'happy',
-  activity:        'idle',
-  isAsleep:        false,
-  age:             0,
-  createdAt:       Date.now(),
-  lastUpdated:     Date.now(),
+  name: 'Pocky',
+  species: 'bunny',
+  hunger: 80,
+  happiness: 70,
+  cleanliness: 90,
+  energy: 85,
+  health: 100,
+  mood: 'happy',
+  activity: 'idle',
+  isAsleep: false,
+  age: 0,
+  createdAt: Date.now(),
+  lastUpdated: Date.now(),
   totalCaresGiven: 0,
-  lastSyncedBy:    '',
+  lastSyncedBy: '',
 };
 
-/** Calcula la edad en días a partir de la fecha de creación */
 export function computeAge(createdAt: number): number {
   return Math.floor((Date.now() - createdAt) / 86400000);
 }

@@ -5,7 +5,6 @@ import { doc, setDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { PetData, PetActivity, PetMood, PetNeed } from '@/types/pet';
 import { clamp, getMood, getNeeds, applyTick, DEFAULT_PET } from '@/lib/petLogic';
 
-// ID único por dispositivo (persiste en localStorage)
 function getDeviceId(): string {
   if (typeof window === 'undefined') return 'server';
   let id = localStorage.getItem('pocky_device_id');
@@ -19,38 +18,44 @@ function getDeviceId(): string {
 const PET_DOC = 'pets/pocky';
 
 interface PetStore extends PetData {
-  needs:       PetNeed[];
+  needs: PetNeed[];
   isConnected: boolean;
 
-  // Acciones
-  feed:        (type?: 'normal' | 'treat') => void;
-  bathe:       () => void;
-  walk:        () => void;
-  play:        () => void;
-  putToSleep:  () => void;
-  wakeUp:      () => void;
-  tick:        () => void;
+  feed: (type?: 'normal' | 'treat') => void;
+  bathe: () => void;
+  walk: () => void;
+  play: () => void;
+  putToSleep: () => void;
+  wakeUp: () => void;
+  tick: () => void;
 
-  // Firebase
-  sync:             (data: Partial<PetData>) => Promise<void>;
-  startListening:   () => () => void;
+  sync: (data: Partial<PetData>) => Promise<void>;
+  startListening: () => () => void;
   registerFCMToken: (token: string) => Promise<void>;
   registerWebPushSubscription: (sub: object) => Promise<void>;
 }
 
 export const usePetStore = create<PetStore>((set, get) => ({
   ...DEFAULT_PET,
-  needs:       [],
+  needs: [],
   isConnected: false,
 
   sync: async (data) => {
     try {
+      // 1. Filtramos y eliminamos cualquier propiedad que sea una función
+      const cleanData = Object.fromEntries(
+        Object.entries(data).filter(([_, value]) => typeof value !== 'function')
+      );
+
+      // 2. Enviamos solo los datos puros a Firebase
       await setDoc(doc(db, PET_DOC), {
-        ...data,
+        ...cleanData,
         lastSyncedBy: getDeviceId(),
-        updatedAt:    serverTimestamp(),
+        updatedAt: serverTimestamp(),
       }, { merge: true });
-    } catch (e) { console.error('Sync error:', e); }
+    } catch (e) {
+      console.error('Sync error:', e);
+    }
   },
 
   registerFCMToken: async (token: string) => {
@@ -70,7 +75,6 @@ export const usePetStore = create<PetStore>((set, get) => ({
       const currentState = get();
       const currentSubs = (currentState.webPushSubscriptions || []) as PushSubscriptionJSON[];
       const subJSON = sub as PushSubscriptionJSON;
-      // Evitar duplicados comparando endpoint
       const alreadyExists = currentSubs.some(
         (s: PushSubscriptionJSON) => s.endpoint === subJSON.endpoint
       );
@@ -88,36 +92,46 @@ export const usePetStore = create<PetStore>((set, get) => ({
         get().sync(DEFAULT_PET);
         return;
       }
-      
+
       const data = snap.data() as PetData;
-      
-      // ¡AQUÍ ESTÁ LA CORRECCIÓN! 
-      // Eliminamos la validación del deviceId. 
-      // Ahora el dispositivo siempre acepta los datos reales de Firebase al instante, 
-      // evitando el error de que todo se regrese a 100 al recargar la página.
+
       set({
         ...data,
-        needs:       getNeeds(data),
+        needs: getNeeds(data),
         isConnected: true,
       });
-      
+
     }, () => set({ isConnected: false }));
-    
+
     return unsub;
   },
 
   feed: (type = 'normal') => {
     const s = get();
     if (s.isAsleep || s.activity !== 'idle') return;
-    const hunger    = clamp(s.hunger + (type === 'treat' ? 25 : 15));
-    const happiness = clamp(s.happiness + (type === 'treat' ? 10 : 5));
-    const next = { activity: 'eating' as PetActivity, hunger, happiness, totalCaresGiven: s.totalCaresGiven + 1, lastUpdated: Date.now() };
-    set(next);
+
+    // CORRECCIÓN: Calcular estado real antes de aplicar la acción
+    const realState = { ...s, ...applyTick(s) };
+
+    const hunger = clamp(realState.hunger + (type === 'treat' ? 25 : 15));
+    const happiness = clamp(realState.happiness + (type === 'treat' ? 10 : 5));
+
+    const next = {
+      ...realState,
+      activity: 'eating' as PetActivity,
+      hunger,
+      happiness,
+      totalCaresGiven: realState.totalCaresGiven + 1,
+      lastUpdated: Date.now()
+    };
+
+    set({ ...next, mood: getMood(next as PetData), needs: getNeeds(next as PetData) });
     get().sync(next);
+
     setTimeout(() => {
       const ns = get();
-      const back = { activity: 'idle' as PetActivity, mood: getMood(ns), needs: getNeeds(ns) };
-      set(back);
+      // CORRECCIÓN: Solo enviar el cambio de actividad, no recalcular stats
+      set({ activity: 'idle', mood: getMood(ns), needs: getNeeds(ns) });
       get().sync({ activity: 'idle', mood: getMood(ns) });
     }, 2500);
   },
@@ -125,9 +139,23 @@ export const usePetStore = create<PetStore>((set, get) => ({
   bathe: () => {
     const s = get();
     if (s.isAsleep || s.activity !== 'idle') return;
-    const next = { activity: 'bathing' as PetActivity, cleanliness: clamp(s.cleanliness + 40), health: clamp(s.health + 5), totalCaresGiven: s.totalCaresGiven + 1, lastUpdated: Date.now() };
-    set(next);
+
+    const realState = { ...s, ...applyTick(s) };
+    const cleanliness = clamp(realState.cleanliness + 40);
+    const health = clamp(realState.health + 5);
+
+    const next = {
+      ...realState,
+      activity: 'bathing' as PetActivity,
+      cleanliness,
+      health,
+      totalCaresGiven: realState.totalCaresGiven + 1,
+      lastUpdated: Date.now()
+    };
+
+    set({ ...next, mood: getMood(next as PetData), needs: getNeeds(next as PetData) });
     get().sync(next);
+
     setTimeout(() => {
       const ns = get();
       set({ activity: 'idle', mood: getMood(ns), needs: getNeeds(ns) });
@@ -138,9 +166,24 @@ export const usePetStore = create<PetStore>((set, get) => ({
   walk: () => {
     const s = get();
     if (s.isAsleep || s.activity !== 'idle' || s.energy < 15) return;
-    const next = { activity: 'walking' as PetActivity, happiness: clamp(s.happiness + 20), energy: clamp(s.energy - 10), health: clamp(s.health + 5), hunger: clamp(s.hunger - 5), totalCaresGiven: s.totalCaresGiven + 1, lastUpdated: Date.now() };
-    set(next);
+
+    const realState = { ...s, ...applyTick(s) };
+    const happiness = clamp(realState.happiness + 20);
+    const energy = clamp(realState.energy - 10);
+    const health = clamp(realState.health + 5);
+    const hunger = clamp(realState.hunger - 5);
+
+    const next = {
+      ...realState,
+      activity: 'walking' as PetActivity,
+      happiness, energy, health, hunger,
+      totalCaresGiven: realState.totalCaresGiven + 1,
+      lastUpdated: Date.now()
+    };
+
+    set({ ...next, mood: getMood(next as PetData), needs: getNeeds(next as PetData) });
     get().sync(next);
+
     setTimeout(() => {
       const ns = get();
       set({ activity: 'idle', mood: getMood(ns), needs: getNeeds(ns) });
@@ -151,9 +194,23 @@ export const usePetStore = create<PetStore>((set, get) => ({
   play: () => {
     const s = get();
     if (s.isAsleep || s.activity !== 'idle' || s.energy < 10) return;
-    const next = { activity: 'playing' as PetActivity, happiness: clamp(s.happiness + 15), energy: clamp(s.energy - 8), hunger: clamp(s.hunger - 5), totalCaresGiven: s.totalCaresGiven + 1, lastUpdated: Date.now() };
-    set(next);
+
+    const realState = { ...s, ...applyTick(s) };
+    const happiness = clamp(realState.happiness + 15);
+    const energy = clamp(realState.energy - 8);
+    const hunger = clamp(realState.hunger - 5);
+
+    const next = {
+      ...realState,
+      activity: 'playing' as PetActivity,
+      happiness, energy, hunger,
+      totalCaresGiven: realState.totalCaresGiven + 1,
+      lastUpdated: Date.now()
+    };
+
+    set({ ...next, mood: getMood(next as PetData), needs: getNeeds(next as PetData) });
     get().sync(next);
+
     setTimeout(() => {
       const ns = get();
       set({ activity: 'idle', mood: getMood(ns), needs: getNeeds(ns) });
@@ -162,25 +219,39 @@ export const usePetStore = create<PetStore>((set, get) => ({
   },
 
   putToSleep: () => {
-    get().tick(); // Aplicamos degradación pendiente antes de dormir para no perderla
-    const next = { 
-      isAsleep: true, 
-      activity: 'sleeping' as PetActivity, 
+
+    const s = get();
+    if (s.activity !== 'idle') return;
+    // CORRECCIÓN: Obtener la degradación exacta antes de dormir e incluirla en el sync
+    const realState = { ...s, ...applyTick(s) };
+
+    const next = {
+      ...realState,
+      isAsleep: true,
+      activity: 'sleeping' as PetActivity,
       mood: 'sleeping' as PetMood,
-      lastUpdated: Date.now() // Reinicia el timer para calcular el descanso exacto desde ahora
+      lastUpdated: Date.now()
     };
-    set(next);
+
+    set({ ...next, needs: getNeeds(next as PetData) });
     get().sync(next);
   },
 
   wakeUp: () => {
     const s = get();
-    const base = { isAsleep: false, activity: 'idle' as PetActivity, energy: clamp(s.energy + 30) };
-    set(base);
-    const ns = get();
-    const full = { ...base, mood: getMood(ns), needs: getNeeds(ns) };
-    set(full);
-    get().sync({ ...base, mood: getMood(ns) });
+    const realState = { ...s, ...applyTick(s) };
+
+    const energy = clamp(realState.energy + 30);
+    const next = {
+      ...realState,
+      isAsleep: false,
+      activity: 'idle' as PetActivity,
+      energy,
+      lastUpdated: Date.now()
+    };
+
+    set({ ...next, mood: getMood(next as PetData), needs: getNeeds(next as PetData) });
+    get().sync({ ...next, mood: getMood(next as PetData) });
   },
 
   tick: () => {
@@ -188,9 +259,8 @@ export const usePetStore = create<PetStore>((set, get) => ({
     const changes = applyTick(s);
     if (Object.keys(changes).length === 0) return;
     const merged = { ...s, ...changes };
-    // Solo actualizamos la UI local, NO sincronizamos a Firebase.
-    // La degradación real la hace el Cron Job del servidor.
-    // Esto previene que pestañas con datos viejos sobreescriban los reales.
+
+    // Solo actualizamos la UI local. La BD sigue intacta.
     set({ ...changes, needs: getNeeds(merged as PetData) });
   },
 }));

@@ -28,7 +28,6 @@ const NEED_ICONS: Record<string, { icon: React.ReactNode }> = {
   sleep: { icon: <Moon size={14} className="text-indigo-600" /> },
 };
 
-// Floating hearts on pet tap
 function FloatingHearts({ count }: { count: number }) {
   if (count === 0) return null;
   return (
@@ -94,20 +93,22 @@ export default function PetScreen() {
 
   const handlePetTap = useCallback(() => {
     setHeartTaps(prev => prev + 1);
-    // Haptic feedback
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
       navigator.vibrate(30);
     }
   }, []);
 
+  // NEW: Added `activityId` to map buttons to the store's current activity state
+  // and changed `disabled` to `customDisabled` for specific stat requirements.
   const actions = [
-    { id: 'feed', icon: <Beef size={22} />, gradient: 'from-orange-400 to-amber-300', label: 'Alimentar', onPress: () => pet.feed('normal'), disabled: pet.activity !== 'idle' },
-    { id: 'treat', icon: <Candy size={22} />, gradient: 'from-pink-400 to-rose-300', label: 'Golosina', onPress: () => pet.feed('treat'), disabled: pet.activity !== 'idle' },
-    { id: 'bath', icon: <ShowerHead size={22} />, gradient: 'from-sky-400 to-cyan-300', label: 'Bañar', onPress: pet.bathe, disabled: pet.activity !== 'idle' },
-    { id: 'walk', icon: <TreePalm size={22} />, gradient: 'from-emerald-400 to-green-300', label: 'Pasear', onPress: pet.walk, disabled: pet.activity !== 'idle' || pet.energy < 15 },
-    { id: 'play', icon: <Gamepad2 size={22} />, gradient: 'from-fuchsia-400 to-purple-300', label: 'Jugar', onPress: pet.play, disabled: pet.activity !== 'idle' || pet.energy < 10 },
+    { id: 'feed', activityId: 'eating', icon: <Beef size={22} />, gradient: 'from-orange-400 to-amber-300', label: 'Alimentar', onPress: () => pet.feed('normal') },
+    { id: 'treat', activityId: 'eating', icon: <Candy size={22} />, gradient: 'from-rose-500 to-red-500', label: 'Golosina', onPress: () => pet.feed('treat') },
+    { id: 'bath', activityId: 'bathing', icon: <ShowerHead size={22} />, gradient: 'from-sky-400 to-cyan-300', label: 'Bañar', onPress: pet.bathe },
+    { id: 'walk', activityId: 'walking', icon: <TreePalm size={22} />, gradient: 'from-emerald-400 to-green-300', label: 'Pasear', onPress: pet.walk, customDisabled: pet.energy < 15 },
+    { id: 'play', activityId: 'playing', icon: <Gamepad2 size={22} />, gradient: 'from-fuchsia-500 to-purple-500', label: 'Jugar', onPress: pet.play, customDisabled: pet.energy < 10 },
     {
       id: pet.isAsleep ? 'wake' : 'sleep',
+      activityId: 'sleeping',
       icon: pet.isAsleep ? <Sun size={22} /> : <Moon size={22} />,
       gradient: pet.isAsleep ? 'from-yellow-400 to-amber-300' : 'from-indigo-400 to-violet-300',
       label: pet.isAsleep ? 'Despertar' : 'Dormir',
@@ -151,7 +152,7 @@ export default function PetScreen() {
         </div>
       )}
 
-      {/* ===== TOP BAR: Name + Notification ===== */}
+      {/* ===== TOP BAR ===== */}
       <div className="flex items-center justify-between px-4 pt-4 pb-1 z-10">
         <div className="flex items-center gap-2">
           <div className={`w-2.5 h-2.5 rounded-full shadow-sm ${pet.isConnected ? 'bg-green-400' : 'bg-red-400'}`} />
@@ -170,7 +171,7 @@ export default function PetScreen() {
         </button>
       </div>
 
-      {/* ===== STATS ROW: Circular rings ===== */}
+      {/* ===== STATS ROW ===== */}
       <div className="px-2 py-2 z-10">
         <CircularStats
           hunger={pet.hunger}
@@ -183,7 +184,6 @@ export default function PetScreen() {
 
       {/* ===== PET AREA ===== */}
       <div className="flex-1 relative flex flex-col items-center justify-center px-4">
-
         {/* Speech bubble */}
         <div className="relative mb-3 z-10">
           <div className={`rounded-2xl px-4 py-2 shadow-md border relative
@@ -202,7 +202,7 @@ export default function PetScreen() {
           </div>
         </div>
 
-        {/* Pet Avatar (tappable) */}
+        {/* Pet Avatar */}
         <div onClick={handlePetTap} className="cursor-pointer relative">
           <PetAvatar species={pet.species} mood={pet.mood} activity={pet.activity} />
           <FloatingHearts count={heartTaps} />
@@ -250,13 +250,30 @@ export default function PetScreen() {
         </h2>
         <div className="grid grid-cols-3 gap-2.5">
           {actions.map((a) => {
-            const off = a.disabled || (pet.isAsleep && a.id !== 'wake');
+            // NEW LOGIC: Determine button state
+            const isBusy = pet.activity !== 'idle';
+            const isActive = pet.activity === a.activityId && isBusy;
+
+            // Disable if asleep (except wake), busy with ANOTHER task, or lacks energy
+            const off = (pet.isAsleep && a.id !== 'wake') || (isBusy && !isActive) || a.customDisabled;
+
+            // Determine dynamic styles based on activity state
+            let buttonStyles = '';
+            if (isActive) {
+              buttonStyles = `bg-gradient-to-br ${a.gradient} text-white shadow-[0_0_15px_rgba(255,255,255,0.4)] ring-4 ring-white/50 scale-[0.98]`;
+            } else if (off) {
+              buttonStyles = timeBg.isNight
+                ? 'bg-white/5 text-white/20 cursor-not-allowed opacity-40'
+                : 'bg-gray-50 text-gray-300 cursor-not-allowed opacity-50';
+            } else {
+              buttonStyles = `bg-gradient-to-br ${a.gradient} text-white shadow-md hover:shadow-lg hover:scale-[1.02] cursor-pointer`;
+            }
+
             return (
               <button
                 key={a.id}
                 onClick={() => {
                   if (off) return;
-                  // Haptic feedback on action
                   if (typeof navigator !== 'undefined' && navigator.vibrate) {
                     navigator.vibrate(50);
                   }
@@ -265,15 +282,10 @@ export default function PetScreen() {
                 disabled={off}
                 className={`
                   flex flex-col items-center justify-center gap-1.5
-                  rounded-2xl p-3 shadow-sm
+                  rounded-2xl p-3
                   font-outfit font-semibold text-xs
-                  transition-all duration-200 active:scale-90
-                  ${off
-                    ? timeBg.isNight
-                      ? 'bg-white/5 text-white/20 cursor-not-allowed'
-                      : 'bg-gray-50 text-gray-300 cursor-not-allowed'
-                    : `bg-gradient-to-br ${a.gradient} text-white shadow-md hover:shadow-lg hover:scale-[1.02] cursor-pointer`
-                  }
+                  transition-all duration-300
+                  ${buttonStyles}
                 `}
               >
                 <span>{a.icon}</span>
