@@ -35,6 +35,7 @@ interface PetStore extends PetData {
   sync:             (data: Partial<PetData>) => Promise<void>;
   startListening:   () => () => void;
   registerFCMToken: (token: string) => Promise<void>;
+  registerWebPushSubscription: (sub: object) => Promise<void>;
 }
 
 export const usePetStore = create<PetStore>((set, get) => ({
@@ -54,8 +55,6 @@ export const usePetStore = create<PetStore>((set, get) => ({
 
   registerFCMToken: async (token: string) => {
     try {
-      // Usar arrayUnion nativamente es mejor, 
-      // pero por simplicidad de Zustand read/write lo agregamos a mano o con merge profundo
       const currentState = get();
       const currentTokens = currentState.fcmTokens || [];
       if (!currentTokens.includes(token)) {
@@ -64,6 +63,23 @@ export const usePetStore = create<PetStore>((set, get) => ({
         await setDoc(doc(db, PET_DOC), { fcmTokens: newTokens }, { merge: true });
       }
     } catch (e) { console.error('Token sync error:', e); }
+  },
+
+  registerWebPushSubscription: async (sub: object) => {
+    try {
+      const currentState = get();
+      const currentSubs = (currentState.webPushSubscriptions || []) as PushSubscriptionJSON[];
+      const subJSON = sub as PushSubscriptionJSON;
+      // Evitar duplicados comparando endpoint
+      const alreadyExists = currentSubs.some(
+        (s: PushSubscriptionJSON) => s.endpoint === subJSON.endpoint
+      );
+      if (!alreadyExists) {
+        const newSubs = [...currentSubs, subJSON];
+        set({ webPushSubscriptions: newSubs });
+        await setDoc(doc(db, PET_DOC), { webPushSubscriptions: newSubs }, { merge: true });
+      }
+    } catch (e) { console.error('WebPush sub sync error:', e); }
   },
 
   startListening: () => {

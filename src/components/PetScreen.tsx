@@ -5,7 +5,7 @@ import PetAvatar from './PetAvatar';
 import PetStats  from './PetStats';
 import ActionPad from './ActionPad';
 import { MOOD_MSG } from '@/lib/sprites';
-import { requestFCMToken } from '@/lib/messaging';
+import { requestNotificationPermission } from '@/lib/messaging';
 
 const ACTIVITY_LABEL: Record<string, string> = {
   eating:   'comiendo 🍽️',
@@ -24,6 +24,21 @@ export default function PetScreen() {
     setIsMounted(true);
   }, []);
 
+  // Helper para registrar notificaciones
+  const handleEnableNotifications = async () => {
+    const result = await requestNotificationPermission();
+    if (!result) {
+      alert('No se pudieron activar las notificaciones. Revisa los permisos de tu navegador.');
+      return;
+    }
+    if (result.type === 'fcm') {
+      usePetStore.getState().registerFCMToken(result.token);
+    } else {
+      usePetStore.getState().registerWebPushSubscription(result.subscription);
+    }
+    alert('¡Notificaciones activadas! 🔔');
+  };
+
   // 2. Conectar a Firebase y arrancar cron local para actualizar stats en pantalla
   useEffect(() => {
     if (!isMounted) return;
@@ -31,11 +46,14 @@ export default function PetScreen() {
     // Iniciar escucha a Firebase
     const unsub = pet.startListening();
     
-    // Solicitar permiso de notificaciones (Opcional: podrías hacerlo con un botón)
-    // Lo hacemos automáticamente al iniciar la PWA
-    requestFCMToken().then(token => {
-      if (token) {
-        usePetStore.getState().registerFCMToken(token);
+    // Solicitar permiso de notificaciones automáticamente
+    requestNotificationPermission().then(result => {
+      if (result) {
+        if (result.type === 'fcm') {
+          usePetStore.getState().registerFCMToken(result.token);
+        } else {
+          usePetStore.getState().registerWebPushSubscription(result.subscription);
+        }
       }
     });
     
@@ -97,16 +115,7 @@ export default function PetScreen() {
             {MOOD_MSG[pet.mood] || '...'}
           </p>
           <button
-            onClick={() => {
-              requestFCMToken().then(token => {
-                if (token) {
-                  usePetStore.getState().registerFCMToken(token);
-                  alert('¡Notificaciones activadas! 🔔');
-                } else {
-                  alert('No se pudieron activar las notificaciones. Revisa los permisos de tu navegador.');
-                }
-              });
-            }}
+            onClick={handleEnableNotifications}
             className="text-lg opacity-60 hover:opacity-100 active:scale-110 transition-all"
             title="Activar notificaciones"
           >
