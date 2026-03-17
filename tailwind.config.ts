@@ -17,6 +17,7 @@ const config: Config = {
         'bounce-soft': 'bounceSoft 0.4s ease-in-out infinite',
         'wiggle':      'wiggle 0.3s ease-in-out infinite',
         'jump':        'jump 0.45s ease-in-out infinite',
+        'pulse-soft':  'pulseSoft 3s ease-in-out infinite',
       },
       keyframes: {
         float: {
@@ -35,6 +36,10 @@ const config: Config = {
         jump: {
           '0%, 100%': { transform: 'translateY(0px)' },
           '40%':      { transform: 'translateY(-20px)' },
+        },
+        pulseSoft: {
+          '0%, 100%': { transform: 'scale(1)' },
+          '50%':      { transform: 'scale(1.04)' },
         },
       },
     },

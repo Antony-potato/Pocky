@@ -21,7 +21,9 @@ export interface PetData {
   activity:        PetActivity;
   isAsleep:        boolean;
   age:             number;
-  lastUpdated:     number;   // timestamp ms
-  totalCaresGiven: number;
-  lastSyncedBy:    string;
+  lastUpdated:          number;   // timestamp ms
+  lastNotificationSent?: number;
+  totalCaresGiven:      number;
+  lastSyncedBy:         string;
+  fcmTokens?:           string[]; // Tokens para notificaciones push
 }

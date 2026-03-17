@@ -1,0 +1,26 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /pets/{petId} {
+      // Allow anyone to read
+      allow read: if true;
+      
+      // Allow updates if the data is basically structured correctly
+      allow update: if request.resource.data.keys().hasAll(['hunger', 'happiness', 'cleanliness', 'energy', 'health']) 
+                    && request.resource.data.hunger is number && request.resource.data.hunger >= 0 && request.resource.data.hunger <= 100
+                    && request.resource.data.happiness is number && request.resource.data.happiness >= 0 && request.resource.data.happiness <= 100
+                    && request.resource.data.cleanliness is number && request.resource.data.cleanliness >= 0 && request.resource.data.cleanliness <= 100
+                    && request.resource.data.energy is number && request.resource.data.energy >= 0 && request.resource.data.energy <= 100
+                    && request.resource.data.health is number && request.resource.data.health >= 0 && request.resource.data.health <= 100
+                    // Prevent manipulation of core identity
+                    && request.resource.data.name == resource.data.name
+                    && request.resource.data.species == resource.data.species
+                    // Ensure fcmTokens is a list if it exists
+                    && (!request.resource.data.keys().hasAny(['fcmTokens']) || request.resource.data.fcmTokens is list);
+
+      // Allow initial create exactly once (if it doesn't exist)
+      allow create: if true;
+    }
+  }
+}

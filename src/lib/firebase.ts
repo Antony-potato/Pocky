@@ -11,8 +11,17 @@ const firebaseConfig = {
 };
 
 // Evita inicializar múltiples veces en desarrollo (hot reload)
-const app = getApps().length === 0
-  ? initializeApp(firebaseConfig)
-  : getApps()[0];
+export let app: any;
+if (getApps().length === 0) {
+  app = initializeApp(firebaseConfig);
+} else {
+  app = getApps()[0];
+}
 
-export const db = getFirestore(app);
+import { initializeFirestore, persistentLocalCache } from 'firebase/firestore';
+
+// Usamos initializeFirestore con persistentLocalCache para habilitar
+// el soporte offline de la PWA.
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache()
+});

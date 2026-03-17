@@ -32,8 +32,9 @@ interface PetStore extends PetData {
   tick:        () => void;
 
   // Firebase
-  sync:           (data: Partial<PetData>) => Promise<void>;
-  startListening: () => () => void;
+  sync:             (data: Partial<PetData>) => Promise<void>;
+  startListening:   () => () => void;
+  registerFCMToken: (token: string) => Promise<void>;
 }
 
 export const usePetStore = create<PetStore>((set, get) => ({
@@ -49,6 +50,20 @@ export const usePetStore = create<PetStore>((set, get) => ({
         updatedAt:    serverTimestamp(),
       }, { merge: true });
     } catch (e) { console.error('Sync error:', e); }
+  },
+
+  registerFCMToken: async (token: string) => {
+    try {
+      // Usar arrayUnion nativamente es mejor, 
+      // pero por simplicidad de Zustand read/write lo agregamos a mano o con merge profundo
+      const currentState = get();
+      const currentTokens = currentState.fcmTokens || [];
+      if (!currentTokens.includes(token)) {
+        const newTokens = [...currentTokens, token];
+        set({ fcmTokens: newTokens });
+        await setDoc(doc(db, PET_DOC), { fcmTokens: newTokens }, { merge: true });
+      }
+    } catch (e) { console.error('Token sync error:', e); }
   },
 
   startListening: () => {
@@ -131,7 +146,13 @@ export const usePetStore = create<PetStore>((set, get) => ({
   },
 
   putToSleep: () => {
-    const next = { isAsleep: true, activity: 'sleeping' as PetActivity, mood: 'sleeping' as PetMood };
+    get().tick(); // Aplicamos degradación pendiente antes de dormir para no perderla
+    const next = { 
+      isAsleep: true, 
+      activity: 'sleeping' as PetActivity, 
+      mood: 'sleeping' as PetMood,
+      lastUpdated: Date.now() // Reinicia el timer para calcular el descanso exacto desde ahora
+    };
     set(next);
     get().sync(next);
   },
@@ -151,7 +172,9 @@ export const usePetStore = create<PetStore>((set, get) => ({
     const changes = applyTick(s);
     if (Object.keys(changes).length === 0) return;
     const merged = { ...s, ...changes };
+    // Solo actualizamos la UI local, NO sincronizamos a Firebase.
+    // La degradación real la hace el Cron Job del servidor.
+    // Esto previene que pestañas con datos viejos sobreescriban los reales.
     set({ ...changes, needs: getNeeds(merged as PetData) });
-    get().sync(changes);
   },
 }));

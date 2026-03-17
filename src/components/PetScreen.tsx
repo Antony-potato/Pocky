@@ -5,6 +5,7 @@ import PetAvatar from './PetAvatar';
 import PetStats  from './PetStats';
 import ActionPad from './ActionPad';
 import { MOOD_MSG } from '@/lib/sprites';
+import { requestFCMToken } from '@/lib/messaging';
 
 const ACTIVITY_LABEL: Record<string, string> = {
   eating:   'comiendo 🍽️',
@@ -23,20 +24,38 @@ export default function PetScreen() {
     setIsMounted(true);
   }, []);
 
-  // 2. Conectar a Firebase (solo si ya se montó el componente)
+  // 2. Conectar a Firebase y arrancar cron local para actualizar stats en pantalla
   useEffect(() => {
     if (!isMounted) return;
+    
+    // Iniciar escucha a Firebase
     const unsub = pet.startListening();
-    return () => unsub();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMounted]); // <-- CORRECCIÓN CLAVE: Se quitó 'pet' de las dependencias
+    
+    // Solicitar permiso de notificaciones (Opcional: podrías hacerlo con un botón)
+    // Lo hacemos automáticamente al iniciar la PWA
+    requestFCMToken().then(token => {
+      if (token) {
+        usePetStore.getState().registerFCMToken(token);
+      }
+    });
+    
+    // Intervalo local: ejecutamos tick cada 20 segundos para que 
+    // mientras duerma (o esté activo), los stats se actualicen 
+    // visualmente en tiempo real apenas pase 1 minuto en Date.now()
+    const interval = setInterval(() => {
+      usePetStore.getState().tick();
+    }, 20000); 
 
-  // 3. (ELIMINADO) El setInterval de degradación fue removido de aquí.
-  // Ahora solo el Vercel Cron (route.ts) se encarga de bajar los stats.
+    return () => {
+      unsub();
+      clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMounted]);
 
   const actions = [
     { id: 'feed',  emoji: '🍖', label: 'Alimentar', color: 'bg-orange-400', onPress: () => pet.feed('normal'), disabled: pet.activity !== 'idle' },
-    { id: 'treat', emoji: '🍬', label: 'Golosina',  color: 'bg-pink-400',   onPress: () => pet.feed('treat'),  disabled: pet.activity !== 'idle' },
+    { id: 'treat', emoji: '🍬', label: 'Golosina',  color: 'bg-pink',       onPress: () => pet.feed('treat'),  disabled: pet.activity !== 'idle' },
     { id: 'bath',  emoji: '🛁', label: 'Bañar',     color: 'bg-sky-400',    onPress: pet.bathe,                disabled: pet.activity !== 'idle' },
     { id: 'walk',  emoji: '🦮', label: 'Pasear',    color: 'bg-emerald-400',onPress: pet.walk,                 disabled: pet.activity !== 'idle' || pet.energy < 15 },
     { id: 'play',  emoji: '🎾', label: 'Jugar',     color: 'bg-fuchsia-400',onPress: pet.play,                 disabled: pet.activity !== 'idle' || pet.energy < 10 },

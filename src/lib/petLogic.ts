@@ -23,7 +23,7 @@ export function getNeeds(s: PetData): PetNeed[] {
   if (s.happiness < 30)
     needs.push({ id: 'play', emoji: '🎾', urgency: 'high', message: `${s.name} está aburrido/a` });
   if (s.energy < 20 && !s.isAsleep)
-    needs.push({ id: 'sleep', emoji: '😴', urgency: 'medium', message: `${s.name} tiene sueño` });
+    needs.push({ id: 'sleep', emoji: '😴', urgency: 'high', message: `${s.name} tiene sueño` });
   return needs;
 }
 
@@ -35,13 +35,14 @@ export function applyTick(s: PetData, now = Date.now()): Partial<PetData> {
   let { hunger, happiness, cleanliness, energy, health } = s;
 
   if (!s.isAsleep) {
-    hunger      = clamp(hunger - mins * 0.1);    // 6 pts/hora (igual)
-    happiness   = clamp(happiness - mins * 0.15);// 9 pts/hora (igual)
-    cleanliness = clamp(cleanliness - mins * 0.1); // 6 pts/hora (Baño cada 16h)
-    energy      = clamp(energy - mins * 0.12);   // 7.2 pts/hora (Sueño cada 13-14h)
+    // Velocidad a 1.3x más rápida que el original
+    hunger      = clamp(hunger - mins * 0.13);   // 7.8 pts/hora 
+    happiness   = clamp(happiness - mins * 0.195);// 11.7 pts/hora 
+    cleanliness = clamp(cleanliness - mins * 0.13); // 7.8 pts/hora
+    energy      = clamp(energy - mins * 0.156);   // 9.36 pts/hora 
   } else {
-    energy = clamp(energy + mins * 0.3); // 18 pts/hora (igual)
-    hunger = clamp(hunger - mins * 0.05); // 3 pts/hora (igual)
+    energy = clamp(energy + mins * 0.39); // Velocidad recuperación 1.3x
+    hunger = clamp(hunger - mins * 0.065); // Desgaste durmiendo 1.3x
   }
 
   const lowCount = [hunger, happiness, cleanliness].filter(v => v < 20).length;
