@@ -21,6 +21,7 @@ export interface PetData {
   activity:        PetActivity;
   isAsleep:        boolean;
   age:             number;
+  createdAt:       number;   // timestamp ms — when pet was first created
   lastUpdated:          number;   // timestamp ms
   lastNotificationSent?: number;
   totalCaresGiven:      number;

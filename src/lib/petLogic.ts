@@ -72,7 +72,13 @@ export const DEFAULT_PET: PetData = {
   activity:        'idle',
   isAsleep:        false,
   age:             0,
+  createdAt:       Date.now(),
   lastUpdated:     Date.now(),
   totalCaresGiven: 0,
   lastSyncedBy:    '',
 };
+
+/** Calcula la edad en días a partir de la fecha de creación */
+export function computeAge(createdAt: number): number {
+  return Math.floor((Date.now() - createdAt) / 86400000);
+}
