@@ -12,8 +12,8 @@ self.addEventListener('push', function(event) {
 
   const options = {
     body: data.body,
-    icon: '/icons/icon-192.png',
-    badge: '/icons/icon-192.png',
+    icon: '/icons/iconoPwa-192.png',
+    badge: '/icons/iconoPwa-192.png',
   };
 
   event.waitUntil(

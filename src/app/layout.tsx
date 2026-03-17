@@ -23,25 +23,25 @@ const caveat = Caveat({
 });
 
 export const metadata: Metadata = {
-  title:       'Pocky 🐰',
+  title: 'Pocky 🐰',
   description: 'Nuestra mascota virtual',
-  manifest:    '/manifest.json',
+  manifest: '/manifest.json',
   appleWebApp: {
-    capable:          true,
-    statusBarStyle:   'default',
-    title:            'Pocky',
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Pocky',
   },
   icons: {
-    apple: '/icons/icon-192.png',
+    apple: '/icons/iconoPwa-192.png',
   },
 };
 
 export const viewport: Viewport = {
-  themeColor:          '#FFF5E4',
-  width:               'device-width',
-  initialScale:        1,
-  maximumScale:        1,
-  userScalable:        false,
+  themeColor: '#FFF5E4',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
