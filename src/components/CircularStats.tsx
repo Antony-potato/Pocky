@@ -4,8 +4,7 @@ import { Bone, Smile, Droplets, Zap, Heart } from 'lucide-react';
 interface CircularStatProps {
   icon: React.ReactNode;
   value: number;
-  color: string;       // tailwind stroke color class
-  strokeColor: string; // actual hex for SVG
+  strokeColor: string; // hex para el SVG
   label: string;
 }
 
@@ -62,35 +61,30 @@ export default function CircularStats({ hunger, happiness, cleanliness, energy, 
       <CircularStat
         icon={<Bone size={20} className="text-orange-500" />}
         value={hunger}
-        color="text-orange-400"
         strokeColor="#fb923c"
         label="Hambre"
       />
       <CircularStat
         icon={<Smile size={20} className="text-green-500" />}
         value={happiness}
-        color="text-green-400"
         strokeColor="#4ade80"
         label="Felicidad"
       />
       <CircularStat
         icon={<Droplets size={20} className="text-sky-500" />}
         value={cleanliness}
-        color="text-sky-400"
         strokeColor="#38bdf8"
         label="Limpieza"
       />
       <CircularStat
         icon={<Zap size={20} className="text-yellow-500" />}
         value={energy}
-        color="text-yellow-400"
         strokeColor="#facc15"
         label="Energía"
       />
       <CircularStat
         icon={<Heart size={20} className="text-red-400" />}
         value={health}
-        color="text-red-400"
         strokeColor="#f87171"
         label="Salud"
       />

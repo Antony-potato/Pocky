@@ -40,8 +40,9 @@ export const viewport: Viewport = {
   themeColor: '#FFF5E4',
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // Sin maximumScale/userScalable: bloquear el zoom incumple WCAG 1.4.4 y
+  // Safari iOS lo ignora igualmente desde iOS 10.
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

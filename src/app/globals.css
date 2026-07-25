@@ -24,12 +24,13 @@ pre, code, .font-mono {
   font-family: 'Courier New', Courier, monospace;
 }
 
-/* Evita que se arrastre o guarde cualquier imagen */
+/* Evita que se arrastre o guarde cualquier imagen.
+   Nota: aquí había además `pointer-events: none`, que rompía en silencio
+   cualquier imagen interactiva. El arrastre ya lo impide user-drag. */
 img {
   -webkit-user-drag: none;
   -khtml-user-drag: none;
   -moz-user-drag: none;
   -o-user-drag: none;
   user-drag: none;
-  pointer-events: none;
 }

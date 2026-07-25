@@ -56,15 +56,6 @@ export function getSprite(species: PetSpecies, activity: PetActivity, mood: PetM
   return map[activity] ?? map.idle;
 }
 
-export const MOOD_BG: Record<PetMood, string> = {
-  happy:    'bg-amber-50  border-amber-200',
-  excited:  'bg-pink-50   border-pink-200',
-  neutral:  'bg-gray-50   border-gray-200',
-  sad:      'bg-blue-50   border-blue-200',
-  sick:     'bg-green-50  border-green-200',
-  sleeping: 'bg-purple-50 border-purple-200',
-};
-
 export const MOOD_MSG: Record<PetMood, string> = {
   happy:    '¡Estoy muy feliz! (✿◠‿◠)',
   excited:  '¡¡Estoy súper emocionado!! \\(^o^)/',

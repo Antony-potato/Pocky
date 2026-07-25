@@ -1,278 +1,232 @@
 # 🐰 Pocky — Mascota Virtual para Dos
 
-Una mascota virtual compartida entre dos personas, construida con Next.js PWA + Firebase. Funciona en iPhone (Safari) y Android (APK con Capacitor), sin costo alguno.
+Una mascota virtual compartida entre dos personas, construida con Next.js PWA + Firebase.
+Funciona en iPhone (Safari) y Android, sin costo alguno.
 
 ---
 
 ## ✨ Características
 
-- 🐰 Mascota con ASCII art animado (conejo, gato, perro, hámster)
-- 💾 Sincronización en tiempo real entre dos teléfonos (Firebase)
+- 🐰 Mascota con imagen, animación Lottie y sprites ASCII para los estados de actividad
+- 💾 Sincronización en tiempo real entre dos teléfonos (Firestore)
 - 📱 PWA — se instala en iPhone desde Safari sin App Store
-- 📦 APK — se instala en Android sin Google Play
-- ⏰ Degradación 24/7 aunque nadie tenga la app abierta (Vercel Cron)
-- 🔔 Notificaciones push cuando la mascota necesita algo (próximamente)
-- 🖼️ Widget en pantalla de inicio via Scriptable (próximamente)
+- ⏰ Degradación 24/7 aunque nadie tenga la app abierta (cron horario)
+- 🔔 Notificaciones push cuando la mascota necesita algo (Web Push, iOS incluido)
+- 📴 Funciona sin conexión: shell cacheado + persistencia local de Firestore
 
 ---
 
 ## 🏗️ Arquitectura
 
 ```
-iPhone (PWA Safari)  ──┐
-                        ├──→ Firebase Firestore ←── Vercel Cron (cada hora)
-Android (APK)        ──┘         (datos)              (degrada stats)
+iPhone (PWA)  ──┐
+                ├──→ Firestore ←── Cron horario (/api/cron/tick)
+Android       ──┘     (estado base)      (degrada + notifica)
 ```
+
+### El principio central
+
+**Firestore guarda el estado BASE en un instante T, no "lo que se ve ahora".**
+La pantalla muestra siempre `projectPet(base, ahora)`, una función pura.
+Toda escritura es una transacción sobre el documento fresco.
+
+Esto es lo que garantiza que ambos teléfonos vean exactamente lo mismo: misma
+entrada + misma función + misma hora = mismo resultado. No hay copias locales
+que puedan divergir, ni escrituras que se pisen entre sí.
 
 ---
 
-## 📁 Estructura del proyecto
+## 📁 Estructura
 
 ```
-pocky-next/
+Pocky/
 ├── src/
 │   ├── app/
-│   │   ├── layout.tsx              ← PWA meta tags
-│   │   ├── page.tsx                ← página raíz
-│   │   ├── globals.css             ← Tailwind base
-│   │   └── api/
-│   │       └── cron/
-│   │           └── tick/
-│   │               └── route.ts   ← endpoint de degradación (Vercel lo llama cada hora)
+│   │   ├── layout.tsx                 ← metadatos PWA
+│   │   ├── page.tsx
+│   │   ├── globals.css
+│   │   └── api/cron/tick/route.ts     ← degradación + push (cron horario)
 │   ├── components/
-│   │   ├── PetScreen.tsx           ← pantalla principal
-│   │   ├── PetAvatar.tsx           ← ASCII art animado
-│   │   ├── PetStats.tsx            ← barras de estado
-│   │   └── ActionPad.tsx           ← botones de cuidado
-│   ├── store/
-│   │   └── petStore.ts             ← estado global + sync Firebase
+│   │   ├── PetScreen.tsx              ← pantalla principal
+│   │   ├── PetAvatar.tsx              ← imagen / Lottie / ASCII
+│   │   ├── CircularStats.tsx          ← anillos de estado
+│   │   └── Toast.tsx
+│   ├── hooks/
+│   │   ├── usePetSync.ts              ← listener + reloj + refresco al volver
+│   │   └── usePush.ts                 ← permiso y alta de notificaciones
+│   ├── store/petStore.ts              ← espejo del documento + transacciones
 │   ├── lib/
-│   │   ├── firebase.ts             ← cliente Firebase
-│   │   ├── petLogic.ts             ← lógica pura (compartida con cron)
-│   │   └── sprites.ts              ← ASCII art y mensajes
-│   └── types/
-│       └── pet.ts                  ← tipos TypeScript
+│   │   ├── petLogic.ts                ← proyección pura, RATES, ACTIONS
+│   │   ├── petLogic.test.ts           ← 35 tests
+│   │   ├── petDoc.ts                  ← normalización del documento
+│   │   ├── auth.ts                    ← sesión anónima
+│   │   ├── messaging.ts               ← Web Push
+│   │   ├── firebase.ts
+│   │   ├── sprites.ts / timeBackground.ts / random.ts
+│   └── types/pet.ts
 ├── public/
-│   ├── manifest.json               ← PWA manifest
-│   └── icons/                      ← íconos de la app (agregar manualmente)
-│       ├── icon-192.png
-│       └── icon-512.png
-├── next.config.ts
-├── tailwind.config.ts
-├── postcss.config.mjs
-├── tsconfig.json
-├── vercel.json                     ← configura el cron job
-├── .env.example                    ← plantilla de variables de entorno
-└── .gitignore
+│   ├── sw.js                          ← service worker único
+│   ├── manifest.json
+│   └── icons/
+├── scripts/migrate.mjs                ← migración del esquema antiguo
+├── .github/workflows/tick.yml         ← scheduler horario de respaldo
+├── firestore.rules
+└── vercel.json
 ```
 
 ---
 
-## 🚀 Setup local
+## 🚀 Setup
 
 ### Requisitos
-- Node.js 20+
-- Cuenta de Firebase (gratis)
-- Cuenta de Vercel (gratis)
+- Node.js 20.9+
+- Cuenta de Firebase (gratis) y de Vercel (gratis)
 
-### 1. Instala dependencias
+### 1. Dependencias
 
 ```bash
 npm install
 ```
 
-### 2. Configura variables de entorno
+### 2. Variables de entorno
 
 ```bash
 cp .env.example .env.local
 ```
 
-Edita `.env.local` con tus credenciales:
+Rellena `.env.local` siguiendo los comentarios del archivo. Para las claves VAPID:
 
 ```bash
-# Cliente (Firebase Web) — desde console.firebase.google.com
-NEXT_PUBLIC_FIREBASE_API_KEY=...
-NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=...
-NEXT_PUBLIC_FIREBASE_PROJECT_ID=...
-NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=...
-NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=...
-NEXT_PUBLIC_FIREBASE_APP_ID=...
-
-# Servidor (Firebase Admin) — desde Configuración > Cuentas de servicio > Generar clave
-FIREBASE_PROJECT_ID=...
-FIREBASE_CLIENT_EMAIL=...
-FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
-
-# Cron — cualquier string largo y aleatorio
-CRON_SECRET=pon_aqui_algo_largo_y_aleatorio
+npx web-push generate-vapid-keys
 ```
 
-### 3. Corre en desarrollo
+### 3. Desarrollo
 
 ```bash
 npm run dev
 ```
 
-Abre [http://localhost:3000](http://localhost:3000)
-
 ---
 
 ## 🔥 Configurar Firebase
 
-1. Ve a [console.firebase.google.com](https://console.firebase.google.com)
-2. **Crear proyecto** → nombre `Pocky`
-3. En el menú lateral → **Firestore Database** → **Crear base de datos** → modo prueba
-4. En **Descripción general** → icono `</>` (Web) → registrar app → copiar config a `.env.local`
-5. Para el cron: **⚙️ Configuración** → **Cuentas de servicio** → **Generar nueva clave privada** → copiar `project_id`, `client_email`, `private_key` a `.env.local`
+1. [console.firebase.google.com](https://console.firebase.google.com) → **Crear proyecto**
+2. **Firestore Database** → Crear base de datos
+3. **Authentication** → Sign-in method → **habilitar “Anónimo”**
+   ⚠️ Sin esto la app no arranca: las reglas exigen sesión.
+4. Icono `</>` (Web) → registrar app → copiar la config a `.env.local`
+5. **Configuración > Cuentas de servicio** → Generar clave privada → copiar
+   `project_id`, `client_email` y `private_key` a `.env.local`
+6. Publicar las reglas:
+   ```bash
+   npx firebase deploy --only firestore:rules
+   ```
 
 ---
 
 ## ☁️ Deploy en Vercel
 
-### 1. Sube el código a GitHub
+1. Importa el repo en [vercel.com](https://vercel.com)
+2. Añade **todas** las variables de `.env.local` en Environment Variables
+3. Deploy
+
+### Cron horario
+
+`vercel.json` pide un tick cada hora, pero **el plan Hobby de Vercel limita los
+cron jobs a una ejecución diaria**. Con un tick diario la mascota llega a 0 en
+todos los stats cada día y solo puede avisar una vez cada 24 h.
+
+Por eso el repo incluye `.github/workflows/tick.yml`, que llama al mismo
+endpoint cada hora sin coste. Añade estos secretos en el repositorio
+(*Settings > Secrets and variables > Actions*):
+
+| Secreto | Valor |
+|---------|-------|
+| `POCKY_URL` | `https://tu-dominio.com` |
+| `CRON_SECRET` | el mismo valor que en Vercel |
+
+Con el plan Pro de Vercel, el cron de `vercel.json` basta y el workflow puede desactivarse.
+
+---
+
+## 🔄 Migración desde el esquema anterior
+
+Solo si vienes de una versión previa a la refactorización del estado:
 
 ```bash
-git init
-git add .
-git commit -m "first commit"
-git remote add origin https://github.com/TU_USUARIO/pocky.git
-git push -u origin main
+npm run migrate -- --dry-run   # ver qué haría
+npm run migrate                # conservando los stats actuales
+npm run migrate -- --reset     # empezando de cero
 ```
 
-### 2. Conecta con Vercel
-
-1. Ve a [vercel.com](https://vercel.com) → **New Project** → importa tu repo
-2. En **Environment Variables** agrega todas las variables de `.env.local`
-3. En **Domains** conecta tu dominio propio
-4. Deploy 🚀
-
-El cron job (`vercel.json`) se activa automáticamente — Vercel llama a `/api/cron/tick` cada hora.
+Ejecútalo en la misma ventana en que despliegas el código nuevo.
+Las suscripciones push antiguas se descartan: cada dispositivo se resuscribe
+solo la próxima vez que abra la app, sin volver a pedir permiso.
 
 ---
 
-## 📱 Instalar en iPhone (PWA)
+## 📱 Instalar en iPhone
 
-1. Abre Safari → entra a `tudominio.com`
-2. Toca el botón de compartir `⬆`
-3. **"Agregar a pantalla de inicio"**
-4. Ponle el nombre `Pocky` → **Agregar**
+1. Abre Safari → entra a tu dominio
+2. Botón de compartir ⬆ → **“Agregar a pantalla de inicio”**
 
-La app aparece en tu pantalla de inicio como cualquier otra app.
-
----
-
-## 🤖 Instalar en Android (APK con Capacitor)
-
-> Próximamente — ver Fase 4 del roadmap
-
-```bash
-npm install @capacitor/core @capacitor/android
-npx cap init
-npm run build
-npx cap add android
-npx cap sync
-npx cap open android   # abre Android Studio para generar el APK
-```
+Las notificaciones en iOS **solo funcionan con la app instalada así**. La app lo
+detecta y te lo indica si intentas activarlas desde el navegador.
 
 ---
 
-## 🖼️ Widget con Scriptable (iPhone)
-
-> Próximamente — ver Fase 5 del roadmap
-
-Scriptable lee Firebase directamente y muestra el estado de Pocky en tu pantalla de inicio.
-
----
-
-## 🗺️ Roadmap
-
-| Fase | Estado | Descripción |
-|------|--------|-------------|
-| **1 — Base** | ✅ Lista | Mascota con stats, ASCII art, animaciones, Firebase sync |
-| **2 — Deploy** | 🔜 | Vercel + tu dominio, cron de degradación 24/7 |
-| **3 — PWA** | 🔜 | Instalar en iPhone desde Safari |
-| **4 — APK Android** | 🔜 | Capacitor → APK con widget nativo |
-| **5 — Widget iPhone** | 🔜 | Scriptable lee Firebase |
-| **6 — Notificaciones** | 🔜 | Firebase Cloud Messaging push 24/7 |
-| **7 — Personalización** | 🔜 | Nombre, especie, accesorios, historial |
-
----
-
-## 🎮 Mecánicas de la mascota
+## 🎮 Mecánicas
 
 ### Estadísticas (0–100)
 
-| Stat | Baja cuando... | Sube con... |
-|------|---------------|-------------|
-| 🍖 Hambre | Con el tiempo (0.8/min) | Alimentar, golosina |
-| 😊 Felicidad | Con el tiempo (0.5/min) | Jugar, pasear, golosina |
-| 🫧 Limpieza | Con el tiempo (0.3/min) | Bañar |
-| ⚡ Energía | Jugando, paseando (0.4/min) | Durmiendo |
-| ❤️ Salud | Si 2+ stats < 20 | Cuidado constante |
+| Stat | Baja | Sube con |
+|------|------|----------|
+| 🍖 Hambre | −0,045/min (~37 h) | Alimentar (+15), golosina (+25) |
+| 😊 Felicidad | −0,055/min (~30 h) | Jugar (+15), pasear (+20), golosina (+10) |
+| 🫧 Limpieza | −0,035/min (~48 h) | Bañar (+40) |
+| ⚡ Energía | −0,05/min (~33 h) | Dormir (+0,8/min) |
+| ❤️ Salud | −0,2/min si 2+ stats < 20 | +0,1/min si todo va bien; bañar y pasear (+5) |
 
-### Degradación 24/7
+Todos los números viven en `RATES` y `ACTIONS` (`src/lib/petLogic.ts`).
 
-El Vercel Cron corre cada hora y aplica la degradación aunque nadie tenga la app abierta. Si stats caen bajo 20, se envía una notificación push.
+### Sueño
+
+La energía se recupera **por tiempo dormido**, no por pulsar “Despertar”.
+Un ciclo completo son unas 2 horas. Mientras duerme, la felicidad y la limpieza
+se congelan y el hambre baja más despacio. Al llegar a 100 se despierta solo.
 
 ### Estados de ánimo
 
 | Mood | Condición |
 |------|-----------|
-| 😸 Feliz | Promedio stats > 80 |
-| 😐 Neutral | Promedio 60–80 |
-| 🥺 Triste | Promedio 30–60 |
+| 😸 Feliz | Promedio > 80 |
+| 😐 Neutral | 60–80 |
+| 🥺 Triste | 30–60 |
 | 🤒 Enfermo | Salud < 30 o promedio < 30 |
-| 😴 Durmiendo | `isAsleep = true` |
+| 😴 Durmiendo | `isAsleep` |
+
+### Notificaciones
+
+El cron revisa cada hora si hay necesidades urgentes (incluida la salud baja) y
+manda **como máximo un aviso cada 4 horas**, priorizando la necesidad más grave.
 
 ---
 
-## 🔧 Personalización rápida
+## 🧪 Verificación
 
-### Cambiar especie o nombre inicial
-
-Edita `src/lib/petLogic.ts`:
-
-```ts
-export const DEFAULT_PET: PetData = {
-  name:    'Pocky',      // ← cambia el nombre
-  species: 'bunny',      // ← 'bunny' | 'cat' | 'dog' | 'hamster'
-  ...
-}
-```
-
-### Cambiar ASCII art
-
-Edita `src/lib/sprites.ts` — cada sprite es un string con `\n` entre líneas:
-
-```ts
-bunny: {
-  idle: "(\\ /)\n( ._. )\nc( )( )",   // ← cambia esto
-  happy: "(\\ /)\n( ^u^ )\nc( )( )",
-  ...
-}
-```
-
-### Cambiar velocidad de degradación
-
-Edita `src/lib/petLogic.ts` en la función `applyTick`:
-
-```ts
-hunger = clamp(hunger - mins * 0.8);  // ← número más alto = baja más rápido
+```bash
+npm test && npm run typecheck && npx eslint src && npm run build
 ```
 
 ---
 
-## 🛡️ Variables de entorno
+## 🗺️ Pendiente
 
-| Variable | Dónde se usa | Descripción |
-|----------|-------------|-------------|
-| `NEXT_PUBLIC_FIREBASE_*` | Cliente (browser) | Conexión Firebase desde la app |
-| `FIREBASE_PROJECT_ID` | Servidor (cron) | Firebase Admin SDK |
-| `FIREBASE_CLIENT_EMAIL` | Servidor (cron) | Firebase Admin SDK |
-| `FIREBASE_PRIVATE_KEY` | Servidor (cron) | Firebase Admin SDK |
-| `CRON_SECRET` | Servidor (cron) | Protege el endpoint `/api/cron/tick` |
-
-> ⚠️ Nunca subas `.env.local` a git — ya está en `.gitignore`
+- Nombre y especie configurables desde la UI
+- Historial de cuidados (hoy solo se muestra el último)
+- Acciones desde la propia notificación (“Alimentar” / “Jugar”)
+- Tests de las reglas de Firestore con `@firebase/rules-unit-testing`
+- Splash screens de iOS
 
 ---
 

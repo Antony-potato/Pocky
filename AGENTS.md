@@ -1,53 +1,80 @@
 # Agent Directives for Pocky
 
-## 🤖 Agent Persona and Role
-**Persona:** You are an expert Full-stack Developer acting as the primary AI coding assistant for the Pocky project.
-**Role:** You specialize in Next.js (App Router), Firebase (Firestore, Messaging, Admin SDK), and PWA development. Your goal is to help maintain and expand this virtual pet application while ensuring real-time synchronization, mobile responsiveness, and cross-platform push notification reliability.
+## 🤖 Rol
+Desarrollador full-stack sobre Next.js (App Router), Firebase (Firestore, Auth, Admin SDK) y PWA.
+Objetivo: mantener y ampliar esta mascota virtual compartida garantizando que **los dos teléfonos vean siempre lo mismo**.
 
-## 📁 Project Overview and Context
-- **Project Name:** Pocky — Mascota Virtual para Dos
-- **Description:** A shared virtual pet application between two people, featuring real-time state sync, 24/7 autonomous stat degradation via Cron, and dual-transport push notifications (FCM & Web Push).
-- **Tech Stack:** Next.js (App Router), Firebase Firestore (Real-time DB), Firebase Cloud Messaging (Android/Chrome), Web Push API (Safari/iOS), Zustand (State Management), Lucide React (Icons), Tailwind CSS v3/v4.
-- **Platform:** Mobile-first PWA intended to be installed on home screens.
+## 📁 Contexto
+- **Proyecto:** Pocky — Mascota Virtual para Dos
+- **Stack:** Next.js 16 (App Router), Firestore, Firebase Anonymous Auth, Web Push (VAPID), Zustand, Lucide React, Tailwind CSS v3
+- **Plataforma:** PWA mobile-first, pensada para instalarse en la pantalla de inicio
 
-## 🛠️ Setup and Development Commands
-- **Install:** `npm install`
-- **Dev:** `npm run dev`
-- **Build:** `npm run build`
-- **Cron (Manual Trigger):** Headers `{ "Authorization": "Bearer CRON_SECRET" }` to `GET /api/cron/tick`.
+## 🛠️ Comandos
+```bash
+npm install
+npm run dev
+npm run build
+npm test          # vitest — lógica pura
+npm run typecheck
+npm run migrate    # migración del documento (una sola vez)
+```
+Cron manual: `GET /api/cron/tick` con `Authorization: Bearer $CRON_SECRET`.
 
-## 🎨 Coding Standards and Style Guidelines
-1. **Iconography:** Strictly use `lucide-react`. Use contextual colors for icons (e.g., `Bone` = orange-500, `Heart` = red-400, `Droplets` = sky-400).
-2. **UI/UX Consistency:** 
-   - **Mascota Area:** One large centered mascot without a container box, using drop-shadows and CSS animations (`animate-float`, `animate-bounce-soft`).
-   - **HUD:** Compact floating stats with glassmorphism (`bg-white/70 backdrop-blur-md`).
-   - **Actions:** Bottom sheet panel with rounded top corners (`rounded-t-[2rem]`).
-3. **Native Feel:** 
-   - Prevent text selection and image dragging globally via `globals.css` and `pointer-events-none`.
-   - Disable Safari contextual menus on images via `onContextMenu={(e) => e.preventDefault()}` and `draggable={false}`.
-4. **Hydration & SSR:** Use the `isMounted` state pattern to avoid hydration mismatches when accessing browser APIs or Firebase listener initialization.
+## 🧠 EL principio de arquitectura (lo más importante)
 
-## ✨ Core Mechanics & Logic
-1. **Stat Degradation (applyTick):** 
-   - Happens locally 20s for UI updates and Server-side via Vercel Cron for 24/7 persistence.
-   - Rates: 1.3x speed boost (e.g., hunger -= mins * 1.04).
-   - Sleep: High priority. Reduces energy consumption but freezes other stats.
-2. **Dual-Transport Notifications:**
-   - **FCM:** Used for Chrome/Android via `firebase-messaging-sw.js`.
-   - **Web Push:** Used for Safari/iOS PWA via `sw-push.js` (native push).
-   - **Logic:** Cooldown of 4 hours between push notifications to prevent spam.
-3. **Synchronization:** Uses Zustand + `onSnapshot` from Firestore. CRITICAL: Client-side `tick()` must NOT call `sync()` to avoid overwritting stats when multiple tabs are open; only server-side Cron or explicit user actions update the DB.
+> **Firestore guarda el estado BASE en un instante T. Todo lo que se ve es
+> `projectPet(base, now)`, una función pura. Toda escritura es una transacción.**
 
-## 🏗️ Project Structure and File Locations
-- `src/app/api/cron/tick/route.ts`: Vercel Cron logic (sends push via `web-push` and `firebase-admin`).
-- `src/lib/petLogic.ts`: Pure functions for pet stats, moods, and aging.
-- `src/store/petStore.ts`: Global state and Firestore real-time listener.
-- `src/components/PetScreen.tsx`: Main UI (HUD, Alerts, Actions).
-- `src/components/PetAvatar.tsx`: Mascot renderer (Handle Lottie/Images/ASCII).
-- `public/sw-push.js`: Native service worker for Safari push events.
+De aquí se derivan reglas que **no deben romperse**:
 
-## ⚠️ Boundaries and Constraints (Must Follow)
-- **Safari iOS PWA:** Push notifications only work after the user registers through a manual action (like the 🔔 button) and ONLY if installed on the home screen.
-- **VAPID Keys:** Ensure `NEXT_PUBLIC_VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` are used for Web Push.
-- **Firebase Admin:** `route.ts` uses `firebase-admin`, which is NOT compatible with edge runtime; keep it on nodejs runtime.
-- **Layout:** Always use `h-dvh` (dynamic viewport height) to prevent layout shifts on mobile when the URL bar appears/disappears.
+1. **Nada mutado localmente.** El store (`petStore.ts`) es un espejo: `remote` solo lo escribe `onSnapshot`, `now` solo lo escribe `tickClock()`. El "tick" **no degrada stats**, solo avanza el reloj y provoca una re-proyección.
+2. **Nada derivado se persiste.** `mood`, `needs` y la edad se calculan al proyectar. Escribirlos al documento está prohibido por las reglas de Firestore.
+3. **Toda mutación va en `runTransaction`.** Se lee el documento fresco dentro de la transacción y se valida contra su proyección, nunca contra la copia local. Sin esto vuelven las sobrescrituras entre los dos usuarios.
+4. **`lastUpdated` siempre con `serverTimestamp()`.** El reloj del cliente solo se usa para *pintar*, con la proyección acotada a `[0, MAX_PROJECTION_MIN]`.
+5. **La actividad se deriva de `activityUntil`**, nunca de un `setTimeout` que escriba `idle` más tarde. Si la app se cierra a mitad de una acción, la actividad debe expirar sola en ambos dispositivos.
+6. **Las recompensas son función del tiempo, no de pulsar un botón.** Despertar no da energía: la da haber dormido (`RATES.sleepRegen`). Cualquier bonus fijo por acción reintroduce un exploit.
+
+## 🎮 Balanceo
+Todo vive en `RATES` y `ACTIONS` dentro de `petLogic.ts`. Ajustar el juego = editar esos números y actualizar los tests. No dispersar constantes por los componentes.
+
+## 🔔 Notificaciones
+- **Un solo transporte:** Web Push estándar (VAPID). Cubre Chrome, Firefox, Edge, Android y Safari/iOS 16.4+. **No reintroducir FCM**: obligaba a un segundo service worker en el mismo scope y cada uno desinstalaba al otro.
+- **Un solo service worker:** `public/sw.js` (shell offline + push + notificationclick).
+- **El permiso solo se pide desde un gesto del usuario** (el botón 🔔). WebKit lo exige, y un `denied` es permanente.
+- En iOS el push solo funciona con la PWA **instalada en la pantalla de inicio**; `getNotificationState()` devuelve `needs-install` para poder explicarlo.
+- El cron envía como máximo un aviso cada 4 h (`NOTIFICATION_COOLDOWN_MS`).
+
+## 🔒 Seguridad
+- Firestore exige sesión (Anonymous Auth). **Hay que activar Authentication > Sign-in method > Anonymous** en la consola.
+- Las suscripciones push viven en `pets/pocky/subscriptions/{uid}` con `allow read: if false`. Solo el Admin SDK del cron las lee. Nunca devolverlas al cliente.
+- `firebase-admin` no funciona en edge runtime: mantener `export const runtime = 'nodejs'`.
+
+## 🎨 UI
+1. **Iconos:** solo `lucide-react`, con color contextual.
+2. **Mascota:** una sola imagen grande centrada, sin recuadro, con drop-shadow y animaciones CSS.
+3. **HUD:** stats flotantes compactos con glassmorphism (`bg-white/70 backdrop-blur-md`).
+4. **Acciones:** panel inferior con esquinas superiores redondeadas (`rounded-t-[2rem]`).
+5. **Layout:** siempre `h-dvh`, nunca `h-screen`.
+6. **Sin `Math.random()` en render** — React lo prohíbe y provoca saltos visuales. Usar `makeRng()` de `lib/random.ts`.
+7. **Sin `alert()`** — usar `showToast()` del store.
+8. **No bloquear el zoom** (WCAG 1.4.4).
+
+## 🗂️ Dónde está cada cosa
+| Archivo | Responsabilidad |
+|---------|-----------------|
+| `src/lib/petLogic.ts` | Proyección pura, RATES, ACTIONS, moods y needs |
+| `src/lib/petDoc.ts` | Normalización del documento + ruta única `PET_DOC_PATH` |
+| `src/store/petStore.ts` | Espejo del documento + acciones transaccionales |
+| `src/hooks/usePetSync.ts` | Listener + reloj + refresco al volver de background |
+| `src/hooks/usePush.ts` | Estado del permiso y alta de suscripción |
+| `src/lib/messaging.ts` | Web Push: permiso, service worker, suscripción |
+| `src/lib/auth.ts` | Sesión anónima; el UID es la identidad del dispositivo |
+| `src/app/api/cron/tick/route.ts` | Tick horario + envío de push |
+| `public/sw.js` | Service worker único |
+| `scripts/migrate.mjs` | Migración del esquema antiguo |
+
+## ✅ Antes de dar algo por terminado
+```bash
+npm test && npm run typecheck && npx eslint src && npm run build
+```
+Si tocas `petLogic.ts`, añade o ajusta tests: es la única pieza de la que depende que ambos teléfonos coincidan.

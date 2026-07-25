@@ -5,6 +5,46 @@
 
 ---
 
+## ✅ ESTADO: IMPLEMENTADO
+
+Las cuatro fases están implementadas en la rama `refactor/estado-y-notificaciones`.
+
+| Fase | Commit | Estado |
+|------|--------|--------|
+| F1 — Estado | `11fcd13` | ✅ |
+| F2 — Notificaciones | `e2b0d28` | ✅ |
+| F3 — Seguridad | `8006c96` | ✅ |
+| F4 — Limpieza | este commit | ✅ |
+
+**Desviaciones respecto al plan original**, con su motivo:
+
+1. **Se retiró FCM por completo** (el plan solo pedía unificar el service worker).
+   Web Push estándar cubre Chrome, Firefox, Edge, Android y Safari/iOS 16.4+ por
+   sí solo; mantener dos transportes obligaba a dos service workers en el mismo
+   scope, que era justamente la causa del fallo 4.1.
+2. **Las suscripciones se movieron a subcolección ya en F1**, no en F3: el modelo
+   de datos cambiaba en F1 de todas formas y así ningún commit queda con arrays
+   que se pisan.
+3. **El cron se reescribió en F1**, no en F2: dependía de los tipos nuevos y sin
+   ello el build no pasaba.
+4. **Tests de reglas con `@firebase/rules-unit-testing`: NO implementados.**
+   Requieren el emulador de Firebase (y Java) en el entorno. Queda pendiente.
+5. **PRNG determinista** en lugar de `useMemo` con `Math.random()`: React 19
+   prohíbe llamadas impuras en fase de render, incluso dentro de `useMemo`.
+
+**Pendiente de verificación manual:** la matriz de §5 requiere dos dispositivos
+reales; no se ha ejecutado. Los tests unitarios cubren la lógica pura, no la
+sincronización real contra Firestore.
+
+**Requisitos antes de desplegar:**
+- Activar Authentication > Sign-in method > **Anonymous** en Firebase
+- Publicar `firestore.rules`
+- Añadir `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` y `VAPID_SUBJECT`
+- Configurar los secretos `POCKY_URL` y `CRON_SECRET` en GitHub Actions
+- Ejecutar `npm run migrate` en la misma ventana del despliegue
+
+---
+
 ## 1. Validación del análisis previo
 
 Se re-verificó cada hallazgo crítico de `ANALISIS.md` contra el código. **Todos se sostienen.** Además, los bugs que ustedes están viviendo en producción son evidencia directa de tres de ellos:
