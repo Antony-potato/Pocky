@@ -11,7 +11,7 @@ import {
   ACTIONS, PetActionId, SLEEP_MAX_ENERGY,
 } from '@/lib/petLogic';
 import { normalizeDoc, PET_DOC_PATH } from '@/lib/petDoc';
-import { getDeviceId } from '@/lib/deviceId';
+import { ensureAuth } from '@/lib/auth';
 
 export type PendingAction = PetActionId | 'sleep' | 'wake';
 
@@ -67,10 +67,11 @@ export const usePetStore = create<PetStore>((set) => {
    */
   async function mutate(
     pendingId: PendingAction,
-    apply: (tx: Transaction, ref: DocumentReference, base: PetDoc, now: number) => void,
+    apply: (tx: Transaction, ref: DocumentReference, base: PetDoc, now: number, uid: string) => void,
   ) {
     set({ pending: pendingId });
     try {
+      const uid = await ensureAuth();
       await runTransaction(db, async (tx) => {
         const ref = petRef();
         const snap = await tx.get(ref);
@@ -80,7 +81,7 @@ export const usePetStore = create<PetStore>((set) => {
           tx.set(ref, { ...createDefaultPet(now), lastUpdated: serverTimestamp() });
           return;
         }
-        apply(tx, ref, normalizeDoc(snap.data(), now), now);
+        apply(tx, ref, normalizeDoc(snap.data(), now), now, uid);
       });
     } catch (e) {
       let text: string;
@@ -88,9 +89,9 @@ export const usePetStore = create<PetStore>((set) => {
         text = REJECT_MSG[e.reason];
       } else {
         const code = (e as { code?: string }).code;
-        text = code === 'permission-denied'
-          ? 'Sin permiso para modificar a Pocky'
-          : REJECT_MSG.offline;
+        if (code === 'permission-denied')            text = 'Sin permiso para modificar a Pocky';
+        else if (code === 'auth/operation-not-allowed') text = 'Falta activar el acceso anónimo en Firebase';
+        else                                         text = REJECT_MSG.offline;
       }
       set({ toast: { id: Date.now(), text } });
     } finally {
@@ -132,7 +133,7 @@ export const usePetStore = create<PetStore>((set) => {
 
     perform: (id) => {
       const spec = ACTIONS[id];
-      return mutate(id, (tx, ref, base, now) => {
+      return mutate(id, (tx, ref, base, now, uid) => {
         const p = projectPet(base, now);
         if (p.isAsleep) throw new ActionRejected('asleep');
         if (p.activity !== 'idle') throw new ActionRejected('busy');
@@ -148,14 +149,14 @@ export const usePetStore = create<PetStore>((set) => {
           sleepStartedAt:  null,
           lastUpdated:     serverTimestamp(),
           totalCaresGiven: increment(1),
-          lastSyncedBy:    getDeviceId(),
-          lastCareBy:      getDeviceId(),
+          lastSyncedBy:    uid,
+          lastCareBy:      uid,
           lastCareAt:      now,
         });
       });
     },
 
-    sleep: () => mutate('sleep', (tx, ref, base, now) => {
+    sleep: () => mutate('sleep', (tx, ref, base, now, uid) => {
       const p = projectPet(base, now);
       if (p.isAsleep) throw new ActionRejected('asleep');
       if (p.activity !== 'idle') throw new ActionRejected('busy');
@@ -168,7 +169,7 @@ export const usePetStore = create<PetStore>((set) => {
         activity:       'sleeping',
         activityUntil:  0,
         lastUpdated:    serverTimestamp(),
-        lastSyncedBy:   getDeviceId(),
+        lastSyncedBy:   uid,
       });
     }),
 
@@ -177,7 +178,7 @@ export const usePetStore = create<PetStore>((set) => {
      * (RATES.sleepRegen por minuto realmente dormido). Este era el bug del
      * "de 0 a 40 sin que pase tiempo".
      */
-    wake: () => mutate('wake', (tx, ref, base, now) => {
+    wake: () => mutate('wake', (tx, ref, base, now, uid) => {
       if (!base.isAsleep) throw new ActionRejected('not-asleep');
       const p = projectPet(base, now);
 
@@ -188,7 +189,7 @@ export const usePetStore = create<PetStore>((set) => {
         activity:       'idle',
         activityUntil:  0,
         lastUpdated:    serverTimestamp(),
-        lastSyncedBy:   getDeviceId(),
+        lastSyncedBy:   uid,
       });
     }),
 

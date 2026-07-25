@@ -8,7 +8,7 @@ import Toast from './Toast';
 import { MOOD_MSG } from '@/lib/sprites';
 import { ACTIONS, PetActionId, SLEEP_MAX_ENERGY } from '@/lib/petLogic';
 import { getTimeBackground } from '@/lib/timeBackground';
-import { getDeviceId } from '@/lib/deviceId';
+import { getUid } from '@/lib/auth';
 import { makeRng } from '@/lib/random';
 import { usePush } from '@/hooks/usePush';
 import { NeedId, PetActivity } from '@/types/pet';
@@ -129,7 +129,7 @@ export default function PetScreen() {
   const sleepAction: PendingAction = pet.isAsleep ? 'wake' : 'sleep';
   const canSleep = !busy && pet.energy < SLEEP_MAX_ENERGY;
 
-  const careByMe = pet.lastCareBy === getDeviceId();
+  const careByMe = !!pet.lastCareBy && pet.lastCareBy === getUid();
 
   return (
     <main

@@ -2,7 +2,7 @@
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { PET_DOC_PATH } from '@/lib/petDoc';
-import { getDeviceId } from '@/lib/deviceId';
+import { ensureAuth } from '@/lib/auth';
 
 export const SUBSCRIPTIONS_PATH = `${PET_DOC_PATH}/subscriptions`;
 
@@ -15,11 +15,13 @@ export const SUBSCRIPTIONS_PATH = `${PET_DOC_PATH}/subscriptions`;
  * dispositivo no hay nada que pisar.
  */
 export async function savePushSubscription(subscription: PushSubscriptionJSON): Promise<void> {
-  const deviceId = getDeviceId();
-  await setDoc(doc(db, SUBSCRIPTIONS_PATH, deviceId), {
+  // El id del documento es el UID: las reglas exigen que coincidan, así que
+  // nadie puede escribir la suscripción de otro dispositivo.
+  const uid = await ensureAuth();
+  await setDoc(doc(db, SUBSCRIPTIONS_PATH, uid), {
     type: 'webpush',
     subscription,
-    deviceId,
+    deviceId: uid,
     userAgent: typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 300) : '',
     updatedAt: serverTimestamp(),
   });

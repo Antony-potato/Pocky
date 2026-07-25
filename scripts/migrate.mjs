@@ -105,18 +105,12 @@ const next = {
   webPushSubscriptions:  FieldValue.delete(),
 };
 
-// ---- Suscripciones push -> subcolección ------------------------------------
-const subs = [];
-for (const [i, token] of (old.fcmTokens ?? []).entries()) {
-  if (typeof token === 'string' && token) {
-    subs.push({ id: `migrated_fcm_${i}`, data: { type: 'fcm', token, deviceId: `migrated_fcm_${i}` } });
-  }
-}
-for (const [i, subscription] of (old.webPushSubscriptions ?? []).entries()) {
-  if (subscription?.endpoint) {
-    subs.push({ id: `migrated_web_${i}`, data: { type: 'webpush', subscription, deviceId: `migrated_web_${i}` } });
-  }
-}
+// ---- Suscripciones push ----------------------------------------------------
+// No se migran: las viejas estaban ligadas a los service workers anteriores
+// (`firebase-messaging-sw.js` / `sw-push.js`), que ahora se desregistran, y los
+// tokens FCM ya no se usan. Cada dispositivo vuelve a suscribirse SOLO, sin
+// diálogo, la próxima vez que abra la app (ensurePushSubscription).
+const oldSubs = (old.fcmTokens ?? []).length + (old.webPushSubscriptions ?? []).length;
 
 console.log('--- Estado actual ---');
 console.log({
@@ -132,19 +126,15 @@ console.log({
   energy: next.energy, health: next.health,
   isAsleep: next.isAsleep, activity: next.activity, activityUntil: next.activityUntil,
 });
-console.log(`--- Suscripciones a migrar: ${subs.length} ---`);
+console.log(`--- Suscripciones push antiguas descartadas: ${oldSubs} ---`);
+console.log('    (cada dispositivo se resuscribe solo al abrir la app)');
 
 if (DRY) {
   console.log('\n(dry-run: no se escribió nada)');
   process.exit(0);
 }
 
-const batch = db.batch();
-batch.update(ref, next);
-for (const s of subs) {
-  batch.set(ref.collection('subscriptions').doc(s.id), { ...s.data, updatedAt: FieldValue.serverTimestamp() });
-}
-await batch.commit();
+await ref.update(next);
 
 console.log('\n✅ Migración completada.');
 if (!RESET && (next.hunger < 20 || next.happiness < 20)) {

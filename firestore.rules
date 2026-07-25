@@ -1,35 +1,77 @@
 rules_version = '2';
 
+// Reglas de Pocky.
+//
+// Antes: `allow read: if true` + `allow create: if true` + update con solo
+// validación de forma. Cualquiera que conociera el projectId podía leer el
+// documento por la API REST — incluidas las suscripciones push completas
+// (endpoint + claves p256dh/auth), con las que se pueden enviar notificaciones
+// arbitrarias a los teléfonos sin pasar por la app.
+//
+// Ahora: sesión obligatoria (Anonymous Auth) y las suscripciones viven en una
+// subcolección que el cliente NO puede leer — solo el Admin SDK del cron, que
+// salta las reglas.
+//
+// ⚠️ Requiere activar Authentication > Sign-in method > Anonymous.
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /pets/{petId} {
-      // Allow anyone to read
-      allow read: if true;
-      
-      // Allow updates if the data is basically structured correctly
-      allow update: if request.resource.data.keys().hasAll(['hunger', 'happiness', 'cleanliness', 'energy', 'health']) 
-                    && request.resource.data.hunger is number && request.resource.data.hunger >= 0 && request.resource.data.hunger <= 100
-                    && request.resource.data.happiness is number && request.resource.data.happiness >= 0 && request.resource.data.happiness <= 100
-                    && request.resource.data.cleanliness is number && request.resource.data.cleanliness >= 0 && request.resource.data.cleanliness <= 100
-                    && request.resource.data.energy is number && request.resource.data.energy >= 0 && request.resource.data.energy <= 100
-                    && request.resource.data.health is number && request.resource.data.health >= 0 && request.resource.data.health <= 100
-                    // Prevent manipulation of core identity
-                    && request.resource.data.name == resource.data.name
-                    && request.resource.data.species == resource.data.species
-                    // Ensure fcmTokens is a list if it exists
-                    && (!request.resource.data.keys().hasAny(['fcmTokens']) || request.resource.data.fcmTokens is list);
 
-      // Allow initial create exactly once (if it doesn't exist)
-      allow create: if true;
+    function signedIn() {
+      return request.auth != null;
     }
 
-    // Suscripciones push: un documento por dispositivo.
-    // NO son legibles desde el cliente — solo el Admin SDK (cron) las lee.
-    // La Fase 3 añade `request.auth != null && deviceId == request.auth.uid`.
-    match /pets/{petId}/subscriptions/{deviceId} {
-      allow read:   if false;
-      allow write:  if request.resource.data.type in ['fcm', 'webpush'];
+    function inRange(v) {
+      return v is number && v >= 0 && v <= 100;
+    }
+
+    function statsValid(d) {
+      return inRange(d.hunger) && inRange(d.happiness) && inRange(d.cleanliness)
+          && inRange(d.energy) && inRange(d.health);
+    }
+
+    // Campos derivados o migrados que ya no deben persistirse en el documento.
+    function noLegacyFields(d) {
+      return !d.keys().hasAny([
+        'mood', 'age', 'needs', 'isConnected',
+        'fcmTokens', 'webPushSubscriptions'
+      ]);
+    }
+
+    match /pets/{petId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+                    && statsValid(request.resource.data)
+                    && noLegacyFields(request.resource.data);
+
+      allow update: if signedIn()
+                    && statsValid(request.resource.data)
+                    && noLegacyFields(request.resource.data)
+                    // La identidad y el origen de la mascota son inmutables.
+                    && request.resource.data.name      == resource.data.name
+                    && request.resource.data.species   == resource.data.species
+                    && request.resource.data.createdAt == resource.data.createdAt
+                    && request.resource.data.isAsleep is bool
+                    && request.resource.data.activityUntil is number
+                    && request.resource.data.totalCaresGiven is number
+                    // Nadie puede hacer que la mascota rejuvenezca de cuidados.
+                    && request.resource.data.totalCaresGiven >= resource.data.totalCaresGiven;
+
       allow delete: if false;
+
+      // Suscripciones push: un documento por dispositivo, cuyo id es el UID.
+      // Ilegibles desde el cliente; solo el cron (Admin SDK) las consulta.
+      match /subscriptions/{deviceId} {
+        allow read: if false;
+
+        allow write: if signedIn()
+                     && deviceId == request.auth.uid
+                     && request.resource.data.type == 'webpush'
+                     && request.resource.data.subscription.endpoint is string;
+
+        allow delete: if signedIn() && deviceId == request.auth.uid;
+      }
     }
   }
 }
