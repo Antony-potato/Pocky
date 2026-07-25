@@ -10,12 +10,11 @@ import { ACTIONS, PetActionId, SLEEP_MAX_ENERGY } from '@/lib/petLogic';
 import { getTimeBackground } from '@/lib/timeBackground';
 import { getDeviceId } from '@/lib/deviceId';
 import { makeRng } from '@/lib/random';
-import { requestNotificationPermission } from '@/lib/messaging';
-import { savePushRegistration } from '@/lib/pushRegistration';
+import { usePush } from '@/hooks/usePush';
 import { NeedId, PetActivity } from '@/types/pet';
 import {
   Beef, Candy, ShowerHead, TreePalm, Gamepad2, Moon, Sun,
-  Bell, PawPrint, UtensilsCrossed, AlertTriangle, Droplets, HeartPulse,
+  Bell, BellOff, PawPrint, UtensilsCrossed, AlertTriangle, Droplets, HeartPulse,
 } from 'lucide-react';
 
 const ACTIVITY_LABEL: Partial<Record<PetActivity, { label: string; icon: React.ReactNode }>> = {
@@ -83,6 +82,7 @@ function FloatingHearts({ count }: { count: number }) {
 
 export default function PetScreen() {
   usePetSync();
+  const push = usePush();
 
   const pet     = useProjectedPet();
   const pending = usePetStore(s => s.pending);
@@ -109,21 +109,6 @@ export default function PetScreen() {
   const handlePetTap = useCallback(() => {
     setHeartTaps(prev => prev + 1);
     vibrate(30);
-  }, []);
-
-  const handleEnableNotifications = useCallback(async () => {
-    const { showToast } = usePetStore.getState();
-    const result = await requestNotificationPermission();
-    if (!result) {
-      showToast('No se pudieron activar los avisos');
-      return;
-    }
-    try {
-      await savePushRegistration(result);
-      showToast('¡Avisos activados! 🔔');
-    } catch {
-      showToast('No se pudo guardar el registro');
-    }
   }, []);
 
   const currentHour = isMounted ? new Date().getHours() : 10;
@@ -185,11 +170,13 @@ export default function PetScreen() {
           </span>
         </div>
         <button
-          onClick={handleEnableNotifications}
-          aria-label="Activar notificaciones"
+          onClick={() => void push.enable()}
+          aria-label={push.state === 'granted' ? 'Avisos activados' : 'Activar notificaciones'}
           className="bg-white/20 backdrop-blur-md rounded-full w-9 h-9 flex items-center justify-center shadow-sm active:scale-90 transition-transform border border-white/30"
         >
-          <Bell size={16} className={timeBg.isNight ? 'text-amber-300' : 'text-amber-500'} />
+          {push.state === 'granted'
+            ? <Bell size={16} className="text-green-400" />
+            : <BellOff size={16} className={timeBg.isNight ? 'text-amber-300' : 'text-amber-500'} />}
         </button>
       </div>
 

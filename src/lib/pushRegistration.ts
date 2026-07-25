@@ -6,10 +6,6 @@ import { getDeviceId } from '@/lib/deviceId';
 
 export const SUBSCRIPTIONS_PATH = `${PET_DOC_PATH}/subscriptions`;
 
-export type PushRegistration =
-  | { type: 'fcm';     token: string }
-  | { type: 'webpush'; subscription: PushSubscriptionJSON };
-
 /**
  * Guarda la suscripción push como UN DOCUMENTO POR DISPOSITIVO.
  *
@@ -18,14 +14,11 @@ export type PushRegistration =
  * personas, el segundo registro borraba al primero. Con un documento por
  * dispositivo no hay nada que pisar.
  */
-export async function savePushRegistration(reg: PushRegistration): Promise<void> {
+export async function savePushSubscription(subscription: PushSubscriptionJSON): Promise<void> {
   const deviceId = getDeviceId();
-  const payload = reg.type === 'fcm'
-    ? { type: 'fcm' as const,     token: reg.token }
-    : { type: 'webpush' as const, subscription: reg.subscription };
-
   await setDoc(doc(db, SUBSCRIPTIONS_PATH, deviceId), {
-    ...payload,
+    type: 'webpush',
+    subscription,
     deviceId,
     userAgent: typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 300) : '',
     updatedAt: serverTimestamp(),

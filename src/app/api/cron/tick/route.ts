@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { initializeApp, getApps, cert, type App } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { getMessaging } from 'firebase-admin/messaging';
 import webPush from 'web-push';
 import { projectPet, baseFromProjection } from '@/lib/petLogic';
 import { normalizeDoc, PET_DOC_PATH } from '@/lib/petDoc';
@@ -100,51 +99,28 @@ export async function GET(req: NextRequest) {
     if (needs.length > 0 && cooldownOver) {
       const subsSnap = await db.collection(`${PET_DOC_PATH}/subscriptions`).get();
 
-      if (!subsSnap.empty) {
+      if (!subsSnap.empty && ensureWebPush()) {
         const { title, body } = buildNotification(needs, base.name);
+        const payload = JSON.stringify({ title, body, url: '/' });
 
-        const fcmDocs = subsSnap.docs.filter(d => d.get('type') === 'fcm');
-        const webDocs = subsSnap.docs.filter(d => d.get('type') === 'webpush');
+        await Promise.all(subsSnap.docs.map(async (d) => {
+          const subscription = d.get('subscription') as webPush.PushSubscription | undefined;
+          if (!subscription?.endpoint) return;
 
-        // ===== FCM (Chrome / Android) =====
-        if (fcmDocs.length > 0) {
           try {
-            const tokens = fcmDocs.map(d => d.get('token') as string);
-            const res = await getMessaging(adminApp).sendEachForMulticast({
-              notification: { title, body },
-              webpush: { fcmOptions: { link: '/' } },
-              tokens,
-            });
-            sent += res.successCount;
-
-            await Promise.all(res.responses.map((r, i) => {
-              const code = r.error?.code;
-              const gone = code === 'messaging/invalid-registration-token'
-                        || code === 'messaging/registration-token-not-registered';
-              return gone ? fcmDocs[i].ref.delete() : Promise.resolve();
-            }));
+            await webPush.sendNotification(subscription, payload);
+            sent += 1;
           } catch (err) {
-            console.error('[Cron] Error enviando FCM:', err);
-          }
-        }
-
-        // ===== Web Push nativo (Safari / iOS) =====
-        if (webDocs.length > 0 && ensureWebPush()) {
-          const payload = JSON.stringify({ title, body, url: '/' });
-          await Promise.all(webDocs.map(async (d) => {
-            try {
-              await webPush.sendNotification(d.get('subscription') as webPush.PushSubscription, payload);
-              sent += 1;
-            } catch (err) {
-              const status = (err as { statusCode?: number }).statusCode;
-              if (status === 404 || status === 410) {
-                await d.ref.delete();
-              } else {
-                console.error('[Cron] Error enviando Web Push:', err);
-              }
+            const status = (err as { statusCode?: number }).statusCode;
+            // 404/410: la suscripción caducó o el usuario desinstaló la PWA.
+            if (status === 404 || status === 410) {
+              await d.ref.delete();
+              console.log('[Cron] Suscripción caducada eliminada.');
+            } else {
+              console.error('[Cron] Error enviando Web Push:', err);
             }
-          }));
-        }
+          }
+        }));
 
         if (sent > 0) update.lastNotificationSent = now;
       }
