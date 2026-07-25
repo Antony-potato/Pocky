@@ -24,6 +24,7 @@ const config: Config = {
         'pulse-soft':  'pulseSoft 3s ease-in-out infinite',
         'twinkle':     'twinkle 2s ease-in-out infinite',
         'float-up':    'floatUp 1.2s ease-out forwards',
+        'toast-in':    'toastIn 0.25s ease-out',
       },
       keyframes: {
         float: {
@@ -54,6 +55,10 @@ const config: Config = {
         floatUp: {
           '0%':   { transform: 'translateY(0) scale(1)', opacity: '1' },
           '100%': { transform: 'translateY(-80px) scale(0.5)', opacity: '0' },
+        },
+        toastIn: {
+          '0%':   { transform: 'translate(-50%, -8px)', opacity: '0' },
+          '100%': { transform: 'translate(-50%, 0)',    opacity: '1' },
         },
       },
     },

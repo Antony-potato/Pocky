@@ -1,5 +1,8 @@
-import { initializeApp, getApps } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
+import {
+  initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+  type Firestore,
+} from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey:            process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -11,17 +14,13 @@ const firebaseConfig = {
 };
 
 // Evita inicializar múltiples veces en desarrollo (hot reload)
-export let app: any;
-if (getApps().length === 0) {
-  app = initializeApp(firebaseConfig);
-} else {
-  app = getApps()[0];
-}
+export const app: FirebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
-import { initializeFirestore, persistentLocalCache } from 'firebase/firestore';
-
-// Usamos initializeFirestore con persistentLocalCache para habilitar
-// el soporte offline de la PWA.
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache()
+/**
+ * Caché persistente para el soporte offline de la PWA.
+ * `persistentMultipleTabManager` es necesario para que una segunda pestaña no
+ * falle al intentar obtener acceso exclusivo a la capa de persistencia.
+ */
+export const db: Firestore = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
 });

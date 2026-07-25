@@ -22,5 +22,14 @@ service cloud.firestore {
       // Allow initial create exactly once (if it doesn't exist)
       allow create: if true;
     }
+
+    // Suscripciones push: un documento por dispositivo.
+    // NO son legibles desde el cliente — solo el Admin SDK (cron) las lee.
+    // La Fase 3 añade `request.auth != null && deviceId == request.auth.uid`.
+    match /pets/{petId}/subscriptions/{deviceId} {
+      allow read:   if false;
+      allow write:  if request.resource.data.type in ['fcm', 'webpush'];
+      allow delete: if false;
+    }
   }
 }

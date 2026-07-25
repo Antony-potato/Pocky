@@ -1,266 +1,224 @@
 'use client';
 import { create } from 'zustand';
+import {
+  doc, onSnapshot, runTransaction, serverTimestamp, increment,
+  Transaction, DocumentReference,
+} from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { doc, setDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
-import { PetData, PetActivity, PetMood, PetNeed } from '@/types/pet';
-import { clamp, getMood, getNeeds, applyTick, DEFAULT_PET } from '@/lib/petLogic';
+import { PetDoc, ProjectedPet } from '@/types/pet';
+import {
+  projectPet, toBase, applyDeltas, createDefaultPet,
+  ACTIONS, PetActionId, SLEEP_MAX_ENERGY,
+} from '@/lib/petLogic';
+import { normalizeDoc, PET_DOC_PATH } from '@/lib/petDoc';
+import { getDeviceId } from '@/lib/deviceId';
 
-function getDeviceId(): string {
-  if (typeof window === 'undefined') return 'server';
-  let id = localStorage.getItem('pocky_device_id');
-  if (!id) {
-    id = `device_${Math.random().toString(36).slice(2, 9)}`;
-    localStorage.setItem('pocky_device_id', id);
-  }
-  return id;
+export type PendingAction = PetActionId | 'sleep' | 'wake';
+
+type RejectReason = 'busy' | 'asleep' | 'tired' | 'not-asleep' | 'not-tired' | 'offline';
+
+const REJECT_MSG: Record<RejectReason, string> = {
+  'busy':      'Pocky está ocupado ahora mismo',
+  'asleep':    'Pocky está dormido',
+  'tired':     'A Pocky le falta energía',
+  'not-asleep':'Pocky ya está despierto',
+  'not-tired': 'Pocky no tiene sueño todavía',
+  'offline':   'Sin conexión — inténtalo de nuevo',
+};
+
+class ActionRejected extends Error {
+  constructor(public reason: RejectReason) { super(reason); }
 }
 
-const PET_DOC = 'pets/pocky';
+interface PetStore {
+  /** Espejo del documento remoto. Solo lo escribe onSnapshot. */
+  remote:  PetDoc | null;
+  /** Reloj de pared. Solo lo escribe tickClock(). */
+  now:     number;
+  /** Conexión real con el servidor (no caché local). */
+  online:  boolean;
+  /** Acción en vuelo, para feedback inmediato en la UI. */
+  pending: PendingAction | null;
+  /** Mensaje efímero de error/aviso. */
+  toast:   { id: number; text: string } | null;
 
-interface PetStore extends PetData {
-  needs: PetNeed[];
-  isConnected: boolean;
-
-  feed: (type?: 'normal' | 'treat') => void;
-  bathe: () => void;
-  walk: () => void;
-  play: () => void;
-  putToSleep: () => void;
-  wakeUp: () => void;
-  tick: () => void;
-
-  sync: (data: Partial<PetData>) => Promise<void>;
   startListening: () => () => void;
-  registerFCMToken: (token: string) => Promise<void>;
-  registerWebPushSubscription: (sub: object) => Promise<void>;
+  perform:  (id: PetActionId) => Promise<void>;
+  sleep:    () => Promise<void>;
+  wake:     () => Promise<void>;
+  showToast:    (text: string) => void;
+  dismissToast: () => void;
 }
 
-export const usePetStore = create<PetStore>((set, get) => ({
-  ...DEFAULT_PET,
-  needs: [],
-  isConnected: false,
+const petRef = () => doc(db, PET_DOC_PATH) as DocumentReference;
 
-  sync: async (data) => {
+/** Avanza el reloj → provoca una nueva proyección. No muta ningún stat. */
+export function tickClock() {
+  usePetStore.setState({ now: Date.now() });
+}
+
+export const usePetStore = create<PetStore>((set) => {
+  /**
+   * Envuelve una mutación en una transacción de Firestore.
+   *
+   * La clave del refactor: lee el documento FRESCO dentro de la transacción y
+   * valida contra su proyección, no contra la copia local. Dos acciones
+   * simultáneas se serializan y ninguna se pierde.
+   */
+  async function mutate(
+    pendingId: PendingAction,
+    apply: (tx: Transaction, ref: DocumentReference, base: PetDoc, now: number) => void,
+  ) {
+    set({ pending: pendingId });
     try {
-      // 1. Filtramos y eliminamos cualquier propiedad que sea una función
-      const cleanData = Object.fromEntries(
-        Object.entries(data).filter(([_, value]) => typeof value !== 'function')
-      );
+      await runTransaction(db, async (tx) => {
+        const ref = petRef();
+        const snap = await tx.get(ref);
+        const now = Date.now();
 
-      // 2. Enviamos solo los datos puros a Firebase
-      await setDoc(doc(db, PET_DOC), {
-        ...cleanData,
-        lastSyncedBy: getDeviceId(),
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
-    } catch (e) {
-      console.error('Sync error:', e);
-    }
-  },
-
-  registerFCMToken: async (token: string) => {
-    try {
-      const currentState = get();
-      const currentTokens = currentState.fcmTokens || [];
-      if (!currentTokens.includes(token)) {
-        const newTokens = [...currentTokens, token];
-        set({ fcmTokens: newTokens });
-        await setDoc(doc(db, PET_DOC), { fcmTokens: newTokens }, { merge: true });
-      }
-    } catch (e) { console.error('Token sync error:', e); }
-  },
-
-  registerWebPushSubscription: async (sub: object) => {
-    try {
-      const currentState = get();
-      const currentSubs = (currentState.webPushSubscriptions || []) as PushSubscriptionJSON[];
-      const subJSON = sub as PushSubscriptionJSON;
-      const alreadyExists = currentSubs.some(
-        (s: PushSubscriptionJSON) => s.endpoint === subJSON.endpoint
-      );
-      if (!alreadyExists) {
-        const newSubs = [...currentSubs, subJSON];
-        set({ webPushSubscriptions: newSubs });
-        await setDoc(doc(db, PET_DOC), { webPushSubscriptions: newSubs }, { merge: true });
-      }
-    } catch (e) { console.error('WebPush sub sync error:', e); }
-  },
-
-  startListening: () => {
-    const unsub = onSnapshot(doc(db, PET_DOC), (snap) => {
-      if (!snap.exists()) {
-        get().sync(DEFAULT_PET);
-        return;
-      }
-
-      const data = snap.data() as PetData;
-
-      set({
-        ...data,
-        needs: getNeeds(data),
-        isConnected: true,
+        if (!snap.exists()) {
+          tx.set(ref, { ...createDefaultPet(now), lastUpdated: serverTimestamp() });
+          return;
+        }
+        apply(tx, ref, normalizeDoc(snap.data(), now), now);
       });
+    } catch (e) {
+      let text: string;
+      if (e instanceof ActionRejected) {
+        text = REJECT_MSG[e.reason];
+      } else {
+        const code = (e as { code?: string }).code;
+        text = code === 'permission-denied'
+          ? 'Sin permiso para modificar a Pocky'
+          : REJECT_MSG.offline;
+      }
+      set({ toast: { id: Date.now(), text } });
+    } finally {
+      set({ pending: null });
+    }
+  }
 
-    }, () => set({ isConnected: false }));
+  return {
+    remote:  null,
+    now:     Date.now(),
+    online:  false,
+    pending: null,
+    toast:   null,
 
-    return unsub;
-  },
+    startListening: () => onSnapshot(
+      petRef(),
+      { includeMetadataChanges: true },
+      (snap) => {
+        if (!snap.exists()) {
+          // Creación idempotente: si dos dispositivos entran a la vez, la
+          // transacción serializa y solo uno crea el documento.
+          void runTransaction(db, async (tx) => {
+            const ref = petRef();
+            const s = await tx.get(ref);
+            if (s.exists()) return;
+            tx.set(ref, { ...createDefaultPet(), lastUpdated: serverTimestamp() });
+          }).catch(() => { /* otro dispositivo lo creó primero */ });
+          return;
+        }
+        set({
+          remote: normalizeDoc(snap.data()),
+          online: !snap.metadata.fromCache,
+          // Proyectar ya mismo, sin esperar al siguiente tick del reloj.
+          now:    Date.now(),
+        });
+      },
+      () => set({ online: false }),
+    ),
 
-  feed: (type = 'normal') => {
-    const s = get();
-    if (s.isAsleep || s.activity !== 'idle') return;
+    perform: (id) => {
+      const spec = ACTIONS[id];
+      return mutate(id, (tx, ref, base, now) => {
+        const p = projectPet(base, now);
+        if (p.isAsleep) throw new ActionRejected('asleep');
+        if (p.activity !== 'idle') throw new ActionRejected('busy');
+        if (spec.minEnergy !== undefined && p.energy < spec.minEnergy) {
+          throw new ActionRejected('tired');
+        }
 
-    // CORRECCIÓN: Calcular estado real antes de aplicar la acción
-    const realState = { ...s, ...applyTick(s) };
+        tx.update(ref, {
+          ...toBase(applyDeltas(p, spec.deltas)),
+          activity:        spec.activity,
+          activityUntil:   now + spec.durationMs,
+          isAsleep:        false,
+          sleepStartedAt:  null,
+          lastUpdated:     serverTimestamp(),
+          totalCaresGiven: increment(1),
+          lastSyncedBy:    getDeviceId(),
+          lastCareBy:      getDeviceId(),
+          lastCareAt:      now,
+        });
+      });
+    },
 
-    const hunger = clamp(realState.hunger + (type === 'treat' ? 25 : 15));
-    const happiness = clamp(realState.happiness + (type === 'treat' ? 10 : 5));
+    sleep: () => mutate('sleep', (tx, ref, base, now) => {
+      const p = projectPet(base, now);
+      if (p.isAsleep) throw new ActionRejected('asleep');
+      if (p.activity !== 'idle') throw new ActionRejected('busy');
+      if (p.energy >= SLEEP_MAX_ENERGY) throw new ActionRejected('not-tired');
 
-    const next = {
-      ...realState,
-      activity: 'eating' as PetActivity,
-      hunger,
-      happiness,
-      totalCaresGiven: realState.totalCaresGiven + 1,
-      lastUpdated: Date.now()
-    };
+      tx.update(ref, {
+        ...toBase(p),
+        isAsleep:       true,
+        sleepStartedAt: now,
+        activity:       'sleeping',
+        activityUntil:  0,
+        lastUpdated:    serverTimestamp(),
+        lastSyncedBy:   getDeviceId(),
+      });
+    }),
 
-    set({ ...next, mood: getMood(next as PetData), needs: getNeeds(next as PetData) });
-    get().sync(next);
+    /**
+     * Despertar NO regala energía. La energía ganada ya está en la proyección
+     * (RATES.sleepRegen por minuto realmente dormido). Este era el bug del
+     * "de 0 a 40 sin que pase tiempo".
+     */
+    wake: () => mutate('wake', (tx, ref, base, now) => {
+      if (!base.isAsleep) throw new ActionRejected('not-asleep');
+      const p = projectPet(base, now);
 
-    setTimeout(() => {
-      const ns = get();
-      // CORRECCIÓN: Solo enviar el cambio de actividad, no recalcular stats
-      set({ activity: 'idle', mood: getMood(ns), needs: getNeeds(ns) });
-      get().sync({ activity: 'idle', mood: getMood(ns) });
-    }, 2500);
-  },
+      tx.update(ref, {
+        ...toBase(p),
+        isAsleep:       false,
+        sleepStartedAt: null,
+        activity:       'idle',
+        activityUntil:  0,
+        lastUpdated:    serverTimestamp(),
+        lastSyncedBy:   getDeviceId(),
+      });
+    }),
 
-  bathe: () => {
-    const s = get();
-    if (s.isAsleep || s.activity !== 'idle') return;
+    showToast:    (text) => set({ toast: { id: Date.now(), text } }),
+    dismissToast: () => set({ toast: null }),
+  };
+});
 
-    const realState = { ...s, ...applyTick(s) };
-    const cleanliness = clamp(realState.cleanliness + 40);
-    const health = clamp(realState.health + 5);
+/**
+ * Memo de tamaño 1 sobre (remote, now).
+ *
+ * Sin esto el selector devolvería un objeto nuevo en cada llamada — `needs` es
+ * siempre un array recién construido — y cualquier cambio del store (pending,
+ * toast…) provocaría un re-render aunque la proyección fuera idéntica.
+ */
+let projectionCache: { remote: PetDoc | null; now: number; result: ProjectedPet | null } | null = null;
 
-    const next = {
-      ...realState,
-      activity: 'bathing' as PetActivity,
-      cleanliness,
-      health,
-      totalCaresGiven: realState.totalCaresGiven + 1,
-      lastUpdated: Date.now()
-    };
+function projectMemo(remote: PetDoc | null, now: number): ProjectedPet | null {
+  if (projectionCache && projectionCache.remote === remote && projectionCache.now === now) {
+    return projectionCache.result;
+  }
+  const result = remote ? projectPet(remote, now) : null;
+  projectionCache = { remote, now, result };
+  return result;
+}
 
-    set({ ...next, mood: getMood(next as PetData), needs: getNeeds(next as PetData) });
-    get().sync(next);
-
-    setTimeout(() => {
-      const ns = get();
-      set({ activity: 'idle', mood: getMood(ns), needs: getNeeds(ns) });
-      get().sync({ activity: 'idle', mood: getMood(ns) });
-    }, 3000);
-  },
-
-  walk: () => {
-    const s = get();
-    if (s.isAsleep || s.activity !== 'idle' || s.energy < 15) return;
-
-    const realState = { ...s, ...applyTick(s) };
-    const happiness = clamp(realState.happiness + 20);
-    const energy = clamp(realState.energy - 10);
-    const health = clamp(realState.health + 5);
-    const hunger = clamp(realState.hunger - 5);
-
-    const next = {
-      ...realState,
-      activity: 'walking' as PetActivity,
-      happiness, energy, health, hunger,
-      totalCaresGiven: realState.totalCaresGiven + 1,
-      lastUpdated: Date.now()
-    };
-
-    set({ ...next, mood: getMood(next as PetData), needs: getNeeds(next as PetData) });
-    get().sync(next);
-
-    setTimeout(() => {
-      const ns = get();
-      set({ activity: 'idle', mood: getMood(ns), needs: getNeeds(ns) });
-      get().sync({ activity: 'idle', mood: getMood(ns) });
-    }, 4000);
-  },
-
-  play: () => {
-    const s = get();
-    if (s.isAsleep || s.activity !== 'idle' || s.energy < 10) return;
-
-    const realState = { ...s, ...applyTick(s) };
-    const happiness = clamp(realState.happiness + 15);
-    const energy = clamp(realState.energy - 8);
-    const hunger = clamp(realState.hunger - 5);
-
-    const next = {
-      ...realState,
-      activity: 'playing' as PetActivity,
-      happiness, energy, hunger,
-      totalCaresGiven: realState.totalCaresGiven + 1,
-      lastUpdated: Date.now()
-    };
-
-    set({ ...next, mood: getMood(next as PetData), needs: getNeeds(next as PetData) });
-    get().sync(next);
-
-    setTimeout(() => {
-      const ns = get();
-      set({ activity: 'idle', mood: getMood(ns), needs: getNeeds(ns) });
-      get().sync({ activity: 'idle', mood: getMood(ns) });
-    }, 3000);
-  },
-
-  putToSleep: () => {
-
-    const s = get();
-    if (s.activity !== 'idle') return;
-    // CORRECCIÓN: Obtener la degradación exacta antes de dormir e incluirla en el sync
-    const realState = { ...s, ...applyTick(s) };
-
-    const next = {
-      ...realState,
-      isAsleep: true,
-      activity: 'sleeping' as PetActivity,
-      mood: 'sleeping' as PetMood,
-      lastUpdated: Date.now()
-    };
-
-    set({ ...next, needs: getNeeds(next as PetData) });
-    get().sync(next);
-  },
-
-  wakeUp: () => {
-    const s = get();
-    const realState = { ...s, ...applyTick(s) };
-
-    const energy = clamp(realState.energy + 30);
-    const next = {
-      ...realState,
-      isAsleep: false,
-      activity: 'idle' as PetActivity,
-      energy,
-      lastUpdated: Date.now()
-    };
-
-    set({ ...next, mood: getMood(next as PetData), needs: getNeeds(next as PetData) });
-    get().sync({ ...next, mood: getMood(next as PetData) });
-  },
-
-  tick: () => {
-    const s = get();
-    const changes = applyTick(s);
-    if (Object.keys(changes).length === 0) return;
-    const merged = { ...s, ...changes };
-
-    // Solo actualizamos la UI local. La BD sigue intacta.
-    set({ ...changes, needs: getNeeds(merged as PetData) });
-  },
-}));
+/**
+ * Única vía de lectura del estado de la mascota para la UI.
+ * Devuelve null mientras no haya llegado el primer snapshot.
+ */
+export function useProjectedPet(): ProjectedPet | null {
+  return usePetStore((s) => projectMemo(s.remote, s.now));
+}

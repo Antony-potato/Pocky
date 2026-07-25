@@ -1,0 +1,38 @@
+'use client';
+import { useEffect } from 'react';
+import { usePetStore, tickClock } from '@/store/petStore';
+
+/**
+ * Cada cuánto avanza el reloj. Es barato: solo actualiza un número y
+ * dispara una re-proyección; no hay escrituras ni mutación de stats.
+ */
+const CLOCK_INTERVAL_MS = 10_000;
+
+/**
+ * Conecta el listener de Firestore y mantiene el reloj al día.
+ *
+ * El refresco por `visibilitychange`/`focus`/`pageshow` es imprescindible en
+ * iOS: el sistema congela el JavaScript de la PWA en segundo plano, así que al
+ * volver la pantalla mostraría valores caducados hasta el siguiente intervalo.
+ */
+export function usePetSync() {
+  useEffect(() => {
+    const unsub = usePetStore.getState().startListening();
+    const interval = setInterval(tickClock, CLOCK_INTERVAL_MS);
+
+    const refresh = () => {
+      if (document.visibilityState === 'visible') tickClock();
+    };
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    window.addEventListener('pageshow', refresh);
+
+    return () => {
+      unsub();
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('pageshow', refresh);
+    };
+  }, []);
+}
