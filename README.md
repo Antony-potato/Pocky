@@ -10,7 +10,7 @@ Funciona en iPhone (Safari) y Android, sin costo alguno.
 - 🐰 Mascota con imagen, animación Lottie y sprites ASCII para los estados de actividad
 - 💾 Sincronización en tiempo real entre dos teléfonos (Firestore)
 - 📱 PWA — se instala en iPhone desde Safari sin App Store
-- ⏰ Degradación 24/7 aunque nadie tenga la app abierta (cron horario)
+- ⏰ Degradación 24/7 aunque nadie tenga la app abierta (cron horario externo)
 - 🔔 Notificaciones push cuando la mascota necesita algo (Web Push, iOS incluido)
 - 📴 Funciona sin conexión: shell cacheado + persistencia local de Firestore
 
@@ -20,7 +20,7 @@ Funciona en iPhone (Safari) y Android, sin costo alguno.
 
 ```
 iPhone (PWA)  ──┐
-                ├──→ Firestore ←── Cron horario (/api/cron/tick)
+                ├──→ Firestore ←── cron-job.org (cada hora)
 Android       ──┘     (estado base)      (degrada + notifica)
 ```
 
@@ -69,9 +69,7 @@ Pocky/
 │   ├── manifest.json
 │   └── icons/
 ├── scripts/migrate.mjs                ← migración del esquema antiguo
-├── .github/workflows/tick.yml         ← scheduler horario de respaldo
-├── firestore.rules
-└── vercel.json
+└── firestore.rules
 ```
 
 ---
@@ -130,22 +128,56 @@ npm run dev
 2. Añade **todas** las variables de `.env.local` en Environment Variables
 3. Deploy
 
-### Cron horario
+---
 
-`vercel.json` pide un tick cada hora, pero **el plan Hobby de Vercel limita los
-cron jobs a una ejecución diaria**. Con un tick diario la mascota llega a 0 en
-todos los stats cada día y solo puede avisar una vez cada 24 h.
+## ⏰ Cron horario (scheduler externo)
 
-Por eso el repo incluye `.github/workflows/tick.yml`, que llama al mismo
-endpoint cada hora sin coste. Añade estos secretos en el repositorio
-(*Settings > Secrets and variables > Actions*):
+El tick lo dispara un servicio de cron externo — [cron-job.org](https://cron-job.org).
 
-| Secreto | Valor |
-|---------|-------|
-| `POCKY_URL` | `https://tu-dominio.com` |
-| `CRON_SECRET` | el mismo valor que en Vercel |
+**No hay `vercel.json` a propósito.** El plan Hobby de Vercel limita los cron
+jobs a **una ejecución diaria**, y declarar `"0 * * * *"` hace fallar el deploy.
+Con un tick diario, además, la mascota llega a 0 en todos los stats cada día y
+solo puede avisar una vez cada 24 h.
 
-Con el plan Pro de Vercel, el cron de `vercel.json` basta y el workflow puede desactivarse.
+### Configuración en cron-job.org
+
+| Campo | Valor |
+|-------|-------|
+| **URL** | `https://tu-dominio.com/api/cron/tick` |
+| **Schedule** | cada hora, minuto 0 |
+| **Request method** | `GET` |
+
+Y en **Advanced → Headers**, añade:
+
+```
+Authorization: Bearer TU_CRON_SECRET
+```
+
+### Si el scheduler no permite cabeceras
+
+Algunos servicios gratuitos no dejan añadir cabeceras. En ese caso el endpoint
+acepta el secreto por query string:
+
+```
+https://tu-dominio.com/api/cron/tick?key=TU_CRON_SECRET
+```
+
+Funciona igual, pero **es menos seguro**: el secreto queda escrito en los
+registros de acceso del scheduler y del hosting. Usa la cabecera siempre que
+puedas.
+
+### Comprobar que funciona
+
+```bash
+curl -i -H "Authorization: Bearer TU_CRON_SECRET" https://tu-dominio.com/api/cron/tick
+```
+
+Responde `{"success":true,...}`. Un `401` significa que el secreto no coincide
+con la variable `CRON_SECRET` de Vercel.
+
+> Si algún día pasas al plan Pro de Vercel, puedes volver a crear `vercel.json`
+> con `{"crons":[{"path":"/api/cron/tick","schedule":"0 * * * *"}]}` y apagar el
+> servicio externo. Vercel envía la cabecera `Authorization` automáticamente.
 
 ---
 

@@ -18,7 +18,8 @@ npm test          # vitest — lógica pura
 npm run typecheck
 npm run migrate    # migración del documento (una sola vez)
 ```
-Cron manual: `GET /api/cron/tick` con `Authorization: Bearer $CRON_SECRET`.
+Cron manual: `GET /api/cron/tick` con `Authorization: Bearer $CRON_SECRET`
+(o `?key=$CRON_SECRET` si el cliente no admite cabeceras).
 
 ## 🧠 EL principio de arquitectura (lo más importante)
 
@@ -43,6 +44,9 @@ Todo vive en `RATES` y `ACTIONS` dentro de `petLogic.ts`. Ajustar el juego = edi
 - **El permiso solo se pide desde un gesto del usuario** (el botón 🔔). WebKit lo exige, y un `denied` es permanente.
 - En iOS el push solo funciona con la PWA **instalada en la pantalla de inicio**; `getNotificationState()` devuelve `needs-install` para poder explicarlo.
 - El cron envía como máximo un aviso cada 4 h (`NOTIFICATION_COOLDOWN_MS`).
+- **El scheduler es externo** (cron-job.org), no `vercel.json`: el plan Hobby de
+  Vercel solo admite crons diarios y declarar uno horario rompe el deploy. No
+  volver a añadir `vercel.json` con `crons` sin comprobar el plan.
 
 ## 🔒 Seguridad
 - Firestore exige sesión (Anonymous Auth). **Hay que activar Authentication > Sign-in method > Anonymous** en la consola.
@@ -69,7 +73,7 @@ Todo vive en `RATES` y `ACTIONS` dentro de `petLogic.ts`. Ajustar el juego = edi
 | `src/hooks/usePush.ts` | Estado del permiso y alta de suscripción |
 | `src/lib/messaging.ts` | Web Push: permiso, service worker, suscripción |
 | `src/lib/auth.ts` | Sesión anónima; el UID es la identidad del dispositivo |
-| `src/app/api/cron/tick/route.ts` | Tick horario + envío de push |
+| `src/app/api/cron/tick/route.ts` | Tick horario + envío de push (lo llama cron-job.org) |
 | `public/sw.js` | Service worker único |
 | `scripts/migrate.mjs` | Migración del esquema antiguo |
 

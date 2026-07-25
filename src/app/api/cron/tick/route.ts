@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { initializeApp, getApps, cert, type App } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import webPush from 'web-push';
@@ -55,6 +56,40 @@ function ensureWebPush(): boolean {
   return webPushReady;
 }
 
+/** Comparación en tiempo constante, tolerante a longitudes distintas. */
+function safeEqual(a: string, b: string): boolean {
+  const ha = createHash('sha256').update(a).digest();
+  const hb = createHash('sha256').update(b).digest();
+  return timingSafeEqual(ha, hb);
+}
+
+/**
+ * Autoriza la llamada al tick.
+ *
+ * Preferido: cabecera `Authorization: Bearer <CRON_SECRET>`.
+ * Alternativa: `?key=<CRON_SECRET>`, para schedulers externos que no permiten
+ * cabeceras personalizadas. Es algo menos seguro — el secreto queda escrito en
+ * los registros de acceso del scheduler y del hosting — así que usa la cabecera
+ * siempre que el servicio la soporte.
+ */
+function isAuthorized(req: NextRequest): boolean {
+  const secret = process.env.CRON_SECRET;
+  // Sin secreto configurado no se autoriza a nadie (antes, con la variable sin
+  // definir, bastaba con enviar literalmente "Bearer undefined").
+  if (!secret) {
+    console.error('[Cron] CRON_SECRET no está configurado.');
+    return false;
+  }
+
+  const header = req.headers.get('authorization');
+  if (header?.startsWith('Bearer ')) return safeEqual(header.slice(7), secret);
+
+  const key = req.nextUrl.searchParams.get('key');
+  if (key) return safeEqual(key, secret);
+
+  return false;
+}
+
 /** Prioriza la necesidad más urgente en lugar de concatenarlas todas. */
 function buildNotification(needs: PetNeed[], name: string) {
   const sorted = [...needs].sort(
@@ -69,7 +104,7 @@ function buildNotification(needs: PetNeed[], name: string) {
 }
 
 export async function GET(req: NextRequest) {
-  if (req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!isAuthorized(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
