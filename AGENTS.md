@@ -21,8 +21,10 @@
 1. **Iconography:** Strictly use `lucide-react`. Use contextual colors for icons (e.g., `Bone` = orange-500, `Heart` = red-400, `Droplets` = sky-400).
 2. **UI/UX Consistency:** 
    - **Mascota Area:** Full-screen 3D island (`src/components/scene/`) behind the HUD. Everything is procedural geometry (no GLB files). Pocky is built from primitives and animated per-part in `useFrame`, with a toon material and an inverted-hull outline. The HUD overlay is `pointer-events-none` (except buttons) so touches reach the canvas (drag to rotate, pinch to zoom).
-   - **HUD:** Compact floating stats with glassmorphism (`bg-white/70 backdrop-blur-md`).
-   - **Actions:** Bottom sheet panel with rounded top corners (`rounded-t-[2rem]`).
+   - **HUD:** Dark floating pills (`PILL` in `PetScreen.tsx`: `bg-[#151a19]/90 backdrop-blur-md`), Nunito font. Top: name pill (orange paw avatar + connection dot) and bell. Left: vertical column of stat rings without labels (`aria-label`/`title` carry the name).
+   - **Actions:** Bottom dock of round icon-only buttons. Highlighted button = current activity (or the one suggested by the most urgent need), glowing in its color, with its label in a pill above.
+   - **Responsive:** fluid sizes via CSS vars `--btn`, `--ring`, `--gap` (clamp with vw/svh). The dock is absolutely anchored to the bottom so landscape fits.
+   - **Splash** (`Splash.tsx` + "Splash" block in `globals.css`): paw outline draws in, liquid fills with real load progress (cache → server → first 3D frame), pop, zoom-through exit. Honors `prefers-reduced-motion`.
 3. **Native Feel:** 
    - Prevent text selection and image dragging globally via `globals.css` and `pointer-events-none`.
    - Disable Safari contextual menus on images via `onContextMenu={(e) => e.preventDefault()}` and `draggable={false}`.
@@ -38,7 +40,12 @@
    - SW has NO Firebase SDK: it handles `push` itself and ALWAYS calls `showNotification` (iOS revokes the subscription after pushes without a visible notification; the SDK skipped it when it thought the app was open). `tag: 'pocky'` collapses late arrivals into one.
    - Server: cron sends data-only messages (`data: {title, body, link}`) with `webpush.headers` `Urgency: high` (no Android Doze batching) and `TTL` 4 h. Don't add a `notification` payload unless the SW changes accordingly.
    - **Logic:** Cooldown of 4 hours between push notifications to prevent spam.
-3. **Synchronization:** Uses Zustand + `onSnapshot` from Firestore. CRITICAL: Client-side `tick()` must NOT call `sync()` to avoid overwritting stats when multiple tabs are open; only server-side Cron or explicit user actions update the DB.
+3. **Synchronization (CRITICAL):**
+   - Actions are pure (`applyAction` in `petLogic.ts`), applied optimistically in local state and saved with a Firestore **transaction** that re-applies them to the server's state and writes only `syncedFields` (never name, `createdAt` or tokens). Cron also uses a transaction.
+   - `tick()` is local-only and must never write.
+   - `isConnected` = `navigator.onLine` AND last snapshot not `fromCache` (listener uses `includeMetadataChanges`). While disconnected nothing is written (transactions fail instead of queuing); local play is discarded when the server state comes back. Offline banner: icon + text, non-blocking, `aria-live`.
+   - Never create the pet doc unless the SERVER confirms it doesn't exist (an empty cache offline used to recreate it and reset the day counter).
+   - The splash waits for `loaded` (first server data), max ~7 s, then enters offline mode.
 
 ## 🏗️ Project Structure and File Locations
 - `src/app/api/cron/tick/route.ts`: Cron endpoint called by cron-job.org (sends push via `firebase-admin` messaging).
@@ -55,4 +62,4 @@
 - **Safari iOS PWA:** Push notifications only work after the user registers through a manual action (like the 🔔 button) and ONLY if installed on the home screen.
 - **VAPID Key:** Optional `NEXT_PUBLIC_FIREBASE_VAPID_KEY` = public key from Firebase Console → Cloud Messaging → Web Push certificates (falls back to Firebase's default key).
 - **Firebase Admin:** `route.ts` uses `firebase-admin`, which is NOT compatible with edge runtime; keep it on nodejs runtime.
-- **Layout:** Always use `h-dvh` (dynamic viewport height) to prevent layout shifts on mobile when the URL bar appears/disappears.
+- **Layout:** Always use `h-dvh` (dynamic viewport height) to prevent layout shifts on mobile when the URL bar appears/disappears. `viewportFit: 'cover'` + iOS `black-translucent` status bar: the scene goes under the clock, so the HUD must pad with `env(safe-area-inset-*)`. Android status bar = `theme_color` `#151a19`.

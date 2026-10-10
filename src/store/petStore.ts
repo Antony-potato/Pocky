@@ -1,9 +1,9 @@
 'use client';
 import { create } from 'zustand';
 import { db } from '@/lib/firebase';
-import { doc, setDoc, onSnapshot, serverTimestamp, arrayUnion } from 'firebase/firestore';
-import { PetData, PetActivity, PetMood, PetNeed } from '@/types/pet';
-import { clamp, getMood, getNeeds, applyTick, DEFAULT_PET } from '@/lib/petLogic';
+import { doc, setDoc, onSnapshot, runTransaction, serverTimestamp, arrayUnion } from 'firebase/firestore';
+import type { PetData, PetNeed } from '@/types/pet';
+import { getNeeds, applyTick, applyAction, endActivity, syncedFields, ACTION_MS, DEFAULT_PET, type PetAction } from '@/lib/petLogic';
 
 function getDeviceId(): string {
   if (typeof window === 'undefined') return 'server';
@@ -15,231 +15,124 @@ function getDeviceId(): string {
   return id;
 }
 
-const PET_DOC = 'pets/pocky';
+const PET = doc(db, 'pets/pocky');
+let lastServer: PetData | null = null; // último estado confirmado por el servidor
 
 interface PetStore extends PetData {
   needs: PetNeed[];
+  /** Conectado Y con datos confirmados por el servidor: solo entonces se guardan cambios. */
   isConnected: boolean;
+  /** Ya llegó al menos una vez el estado real del servidor (la pantalla de carga espera a esto). */
+  loaded: boolean;
+  /** Hay datos reales de Pocky (del servidor o de la caché del móvil), no solo los de por defecto. */
+  hasData: boolean;
 
-  feed: (type?: 'normal' | 'treat') => void;
-  bathe: () => void;
-  walk: () => void;
-  play: () => void;
-  putToSleep: () => void;
-  wakeUp: () => void;
+  act: (a: PetAction) => void;
   tick: () => void;
-
-  sync: (data: Partial<PetData>) => Promise<void>;
   startListening: () => () => void;
   registerFCMToken: (token: string) => Promise<void>;
 }
 
-export const usePetStore = create<PetStore>((set, get) => ({
-  ...DEFAULT_PET,
-  needs: [],
-  isConnected: false,
+const view = (d: PetData) => ({ ...d, createdAt: d.createdAt ?? 0, needs: getNeeds(d) });
 
-  sync: async (data) => {
-    try {
-      // 1. Filtramos y eliminamos cualquier propiedad que sea una función
-      const cleanData = Object.fromEntries(
-        Object.entries(data).filter(([_, value]) => typeof value !== 'function')
-      );
+/**
+ * Guarda con transacción: lee el estado REAL del servidor, aplica el cambio y escribe solo los campos de stats.
+ * - Dos móviles a la vez no se pisan (antes ganaba el último en escribir su copia local entera).
+ * - Sin conexión la transacción falla en vez de quedar en cola: lo jugado offline no se guarda.
+ */
+async function commit(change: (server: PetData) => PetData | null): Promise<'saved' | 'rejected' | 'failed'> {
+  try {
+    return await runTransaction(db, async tx => {
+      const snap = await tx.get(PET);
+      const next = snap.exists() ? change(snap.data() as PetData) : null;
+      if (!next) return 'rejected';
+      tx.update(PET, { ...syncedFields(next), lastSyncedBy: getDeviceId(), updatedAt: serverTimestamp() });
+      return 'saved';
+    });
+  } catch (e) {
+    console.warn('No se pudo guardar (¿sin conexión?):', e);
+    return 'failed';
+  }
+}
 
-      // 2. Enviamos solo los datos puros a Firebase
-      await setDoc(doc(db, PET_DOC), {
-        ...cleanData,
-        lastSyncedBy: getDeviceId(),
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
-    } catch (e) {
-      console.error('Sync error:', e);
-    }
-  },
+export const usePetStore = create<PetStore>((set, get) => {
+  // Si el servidor rechaza la acción (p. ej. tu pareja hizo otra a la vez), vuelve al estado real.
+  const save = (change: (server: PetData) => PetData | null) => {
+    if (!get().isConnected) return; // sin conexión: solo local, a propósito
+    commit(change).then(r => { if (r === 'rejected' && lastServer) { set(view(lastServer)); get().tick(); } });
+  };
 
-  // arrayUnion: no depende de que haya llegado el snapshot, así no se pisan los tokens del otro dispositivo.
-  registerFCMToken: async (token: string) => {
-    try {
-      await setDoc(doc(db, PET_DOC), { fcmTokens: arrayUnion(token) }, { merge: true });
-    } catch (e) { console.error('Token sync error:', e); }
-  },
+  return {
+    ...DEFAULT_PET,
+    createdAt: 0,
+    needs: [],
+    isConnected: false,
+    loaded: false,
+    hasData: false,
 
-  startListening: () => {
-    const unsub = onSnapshot(doc(db, PET_DOC), (snap) => {
-      if (!snap.exists()) {
-        get().sync(DEFAULT_PET);
-        return;
-      }
+    act: (a) => {
+      const next = applyAction(get(), a);
+      if (!next) return;
+      set({ ...next, needs: getNeeds(next) }); // respuesta inmediata en pantalla
+      save(server => applyAction(server, a));
+      const ms = ACTION_MS[a];
+      if (ms) setTimeout(() => {
+        const done = endActivity(get(), next.activity);
+        if (done) set({ ...done, needs: getNeeds(done) });
+        save(server => endActivity(server, next.activity));
+      }, ms);
+    },
 
-      const data = snap.data() as PetData;
+    // Degradación local cada 20 s, solo para la pantalla. NUNCA escribe en la BD (eso es del cron y de las acciones).
+    tick: () => {
+      const s = get();
+      const changes = applyTick(s);
+      if (Object.keys(changes).length === 0) return;
+      set({ ...changes, needs: getNeeds({ ...s, ...changes }) });
+    },
 
-      set({
-        ...data,
-        needs: getNeeds(data),
-        isConnected: true,
-      });
-      get().tick(); // stats al día nada más abrir (solo local, no escribe en BD)
+    // arrayUnion: no depende de que haya llegado el snapshot, así no se pisan los tokens del otro dispositivo.
+    registerFCMToken: async (token: string) => {
+      try {
+        await setDoc(PET, { fcmTokens: arrayUnion(token) }, { merge: true });
+      } catch (e) { console.error('Token sync error:', e); }
+    },
 
-    }, () => set({ isConnected: false }));
+    startListening: () => {
+      let fromServer = false, prevJson = '';
+      const connected = () => navigator.onLine && fromServer;
+      // navigator.onLine da falsos positivos: "conectado" exige además datos frescos del servidor (fromCache = false).
+      const onNet = () => set({ isConnected: connected() });
+      window.addEventListener('online', onNet);
+      window.addEventListener('offline', onNet);
 
-    return unsub;
-  },
+      const unsub = onSnapshot(PET, { includeMetadataChanges: true }, (snap) => {
+        fromServer = !snap.metadata.fromCache;
+        if (!snap.exists()) {
+          // Solo se crea si el SERVIDOR confirma que no existe. Antes bastaba con la caché vacía sin conexión,
+          // y al reconectar machacaba a Pocky con los valores por defecto (y el contador de días volvía a 0).
+          if (fromServer) setDoc(PET, { ...DEFAULT_PET, createdAt: Date.now(), lastUpdated: Date.now() });
+          set({ isConnected: connected(), loaded: get().loaded || fromServer });
+          return;
+        }
+        const data = snap.data() as PetData;
+        if (fromServer) lastServer = data;
+        const json = JSON.stringify(data);
+        // Aplicar si cambiaron los datos o si acabamos de reconectar (descarta lo jugado sin conexión).
+        // Si solo cambió la metadata (p. ej. se fue la conexión), no machacamos lo que se está jugando.
+        if (json !== prevJson || (connected() && !get().isConnected)) {
+          set(view(data));
+          get().tick();
+        }
+        prevJson = json;
+        set({ isConnected: connected(), loaded: get().loaded || fromServer, hasData: true });
+      }, () => set({ isConnected: false }));
 
-  feed: (type = 'normal') => {
-    const s = get();
-    if (s.isAsleep || s.activity !== 'idle') return;
-
-    // CORRECCIÓN: Calcular estado real antes de aplicar la acción
-    const realState = { ...s, ...applyTick(s) };
-
-    const hunger = clamp(realState.hunger + (type === 'treat' ? 25 : 15));
-    const happiness = clamp(realState.happiness + (type === 'treat' ? 10 : 5));
-
-    const next = {
-      ...realState,
-      activity: 'eating' as PetActivity,
-      hunger,
-      happiness,
-      totalCaresGiven: realState.totalCaresGiven + 1,
-      lastUpdated: Date.now()
-    };
-
-    set({ ...next, mood: getMood(next as PetData), needs: getNeeds(next as PetData) });
-    get().sync(next);
-
-    setTimeout(() => {
-      const ns = get();
-      // CORRECCIÓN: Solo enviar el cambio de actividad, no recalcular stats
-      set({ activity: 'idle', mood: getMood(ns), needs: getNeeds(ns) });
-      get().sync({ activity: 'idle', mood: getMood(ns) });
-    }, 2500);
-  },
-
-  bathe: () => {
-    const s = get();
-    if (s.isAsleep || s.activity !== 'idle') return;
-
-    const realState = { ...s, ...applyTick(s) };
-    const cleanliness = clamp(realState.cleanliness + 40);
-    const health = clamp(realState.health + 5);
-
-    const next = {
-      ...realState,
-      activity: 'bathing' as PetActivity,
-      cleanliness,
-      health,
-      totalCaresGiven: realState.totalCaresGiven + 1,
-      lastUpdated: Date.now()
-    };
-
-    set({ ...next, mood: getMood(next as PetData), needs: getNeeds(next as PetData) });
-    get().sync(next);
-
-    setTimeout(() => {
-      const ns = get();
-      set({ activity: 'idle', mood: getMood(ns), needs: getNeeds(ns) });
-      get().sync({ activity: 'idle', mood: getMood(ns) });
-    }, 3000);
-  },
-
-  walk: () => {
-    const s = get();
-    if (s.isAsleep || s.activity !== 'idle' || s.energy < 15) return;
-
-    const realState = { ...s, ...applyTick(s) };
-    const happiness = clamp(realState.happiness + 20);
-    const energy = clamp(realState.energy - 10);
-    const health = clamp(realState.health + 5);
-    const hunger = clamp(realState.hunger - 5);
-
-    const next = {
-      ...realState,
-      activity: 'walking' as PetActivity,
-      happiness, energy, health, hunger,
-      totalCaresGiven: realState.totalCaresGiven + 1,
-      lastUpdated: Date.now()
-    };
-
-    set({ ...next, mood: getMood(next as PetData), needs: getNeeds(next as PetData) });
-    get().sync(next);
-
-    setTimeout(() => {
-      const ns = get();
-      set({ activity: 'idle', mood: getMood(ns), needs: getNeeds(ns) });
-      get().sync({ activity: 'idle', mood: getMood(ns) });
-    }, 4000);
-  },
-
-  play: () => {
-    const s = get();
-    if (s.isAsleep || s.activity !== 'idle' || s.energy < 10) return;
-
-    const realState = { ...s, ...applyTick(s) };
-    const happiness = clamp(realState.happiness + 15);
-    const energy = clamp(realState.energy - 8);
-    const hunger = clamp(realState.hunger - 5);
-
-    const next = {
-      ...realState,
-      activity: 'playing' as PetActivity,
-      happiness, energy, hunger,
-      totalCaresGiven: realState.totalCaresGiven + 1,
-      lastUpdated: Date.now()
-    };
-
-    set({ ...next, mood: getMood(next as PetData), needs: getNeeds(next as PetData) });
-    get().sync(next);
-
-    setTimeout(() => {
-      const ns = get();
-      set({ activity: 'idle', mood: getMood(ns), needs: getNeeds(ns) });
-      get().sync({ activity: 'idle', mood: getMood(ns) });
-    }, 3000);
-  },
-
-  putToSleep: () => {
-
-    const s = get();
-    if (s.activity !== 'idle') return;
-    // CORRECCIÓN: Obtener la degradación exacta antes de dormir e incluirla en el sync
-    const realState = { ...s, ...applyTick(s) };
-
-    const next = {
-      ...realState,
-      isAsleep: true,
-      activity: 'sleeping' as PetActivity,
-      mood: 'sleeping' as PetMood,
-      lastUpdated: Date.now()
-    };
-
-    set({ ...next, needs: getNeeds(next as PetData) });
-    get().sync(next);
-  },
-
-  wakeUp: () => {
-    const s = get();
-    const realState = { ...s, ...applyTick(s) };
-
-    const energy = clamp(realState.energy + 30);
-    const next = {
-      ...realState,
-      isAsleep: false,
-      activity: 'idle' as PetActivity,
-      energy,
-      lastUpdated: Date.now()
-    };
-
-    set({ ...next, mood: getMood(next as PetData), needs: getNeeds(next as PetData) });
-    get().sync({ ...next, mood: getMood(next as PetData) });
-  },
-
-  tick: () => {
-    const s = get();
-    const changes = applyTick(s);
-    if (Object.keys(changes).length === 0) return;
-    const merged = { ...s, ...changes };
-
-    // Solo actualizamos la UI local. La BD sigue intacta.
-    set({ ...changes, needs: getNeeds(merged as PetData) });
-  },
-}));
+      return () => {
+        unsub();
+        window.removeEventListener('online', onNet);
+        window.removeEventListener('offline', onNet);
+      };
+    },
+  };
+});

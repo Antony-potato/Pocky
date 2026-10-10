@@ -10,12 +10,12 @@ import { NODES, POI, TOUR, WANDER, findPath, nearestNode, type NodeId, type XZ }
 export const pockyPos = new THREE.Vector3(NODES.c[0], 0, NODES.c[1]);
 
 const MOOD_MSG: Record<PetMood, string> = {
-  happy: '¡Estoy muy feliz! (✿◠‿◠)',
-  excited: '¡¡Estoy súper emocionado!! \\(^o^)/',
-  neutral: 'Estoy bien... más o menos (._.)',
-  sad: 'Me siento un poco triste... (╥_╥)',
-  sick: 'No me siento muy bien... (@_@)',
-  sleeping: 'Zzzz... (-.-)zzZ',
+  happy: '¡Estoy muy feliz!',
+  excited: '¡Estoy súper emocionado!',
+  neutral: 'Estoy bien... más o menos',
+  sad: 'Me siento un poco triste...',
+  sick: 'No me siento muy bien...',
+  sleeping: 'Zzz...',
 };
 
 const FUR = '#efd6ab', LINE = '#8e4e2e', PINK = '#efaab3';
@@ -62,6 +62,7 @@ export default function Pocky() {
   const activity = usePetStore(s => s.activity);
   const isAsleep = usePetStore(s => s.isAsleep);
   const mood = usePetStore(s => s.mood);
+  const need = usePetStore(s => s.needs[0]?.message); // si le falta algo, lo dice en el bocadillo
   const clock = useThree(s => s.clock);
   const gl = useThree(s => s.gl);
 
@@ -70,7 +71,7 @@ export default function Pocky() {
     const anchor = document.createElement('div');
     anchor.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;z-index:1;will-change:transform';
     const bubble = document.createElement('div');
-    bubble.className = 'absolute -translate-x-1/2 -translate-y-full rounded-2xl px-3 py-1 bg-white/85 backdrop-blur-md shadow-md border border-amber-100 whitespace-nowrap font-caveat font-semibold text-sm text-gray-700';
+    bubble.className = 'absolute -translate-x-1/2 -translate-y-full rounded-full px-4 py-1.5 bg-[#ececec] shadow-lg whitespace-nowrap font-nunito font-extrabold text-[15px] text-gray-800';
     anchor.append(bubble);
     return { anchor, bubble, v: new THREE.Vector3() };
   }, []);
@@ -78,7 +79,7 @@ export default function Pocky() {
     gl.domElement.parentElement!.append(ui.anchor);
     return () => ui.anchor.remove();
   }, [gl, ui]);
-  useEffect(() => { ui.bubble.textContent = MOOD_MSG[mood] ?? '...'; }, [mood, ui]);
+  useEffect(() => { ui.bubble.textContent = (!isAsleep && need) || (MOOD_MSG[mood] ?? '...'); }, [mood, need, isAsleep, ui]);
 
   const mat = useMemo(() => {
     const grad = new THREE.DataTexture(new Uint8Array([120, 200, 255]), 3, 1, THREE.RedFormat);

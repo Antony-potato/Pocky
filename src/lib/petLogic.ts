@@ -78,6 +78,45 @@ export const DEFAULT_PET: PetData = {
   lastSyncedBy: '',
 };
 
-export function computeAge(createdAt: number): number {
-  return Math.floor((Date.now() - createdAt) / 86400000);
+// Días de calendario (hora local) desde que nació: si nació ayer a las 23:00, hoy ya cuenta 1.
+export function computeAge(createdAt: number, now = Date.now()): number {
+  const day = (t: number) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  return Math.max(0, Math.round((day(now) - day(createdAt)) / 86400000));
+}
+
+export type PetAction = 'feed' | 'treat' | 'bathe' | 'walk' | 'play' | 'sleep' | 'wake';
+
+// Cuánto dura cada acción antes de volver a 'idle' (dormir dura hasta despertar).
+export const ACTION_MS: Partial<Record<PetAction, number>> = { feed: 2500, treat: 2500, bathe: 3000, walk: 4000, play: 3000 };
+
+const withMood = (s: PetData): PetData => ({ ...s, mood: getMood(s) });
+
+/**
+ * Aplica una acción sobre el estado, descontando antes el tiempo transcurrido. null = ahora no se puede.
+ * Se usa igual en local (respuesta inmediata) y dentro de la transacción de Firestore (la que manda).
+ */
+export function applyAction(s: PetData, a: PetAction, now = Date.now()): PetData | null {
+  const r: PetData = { ...s, ...applyTick(s, now) };
+  if (a === 'wake') return r.isAsleep ? withMood({ ...r, isAsleep: false, activity: 'idle', energy: clamp(r.energy + 30) }) : null;
+  if (r.isAsleep || r.activity !== 'idle') return null;
+  const cared = { ...r, totalCaresGiven: (r.totalCaresGiven ?? 0) + 1 };
+  switch (a) {
+    case 'sleep': return withMood({ ...r, isAsleep: true, activity: 'sleeping' });
+    case 'feed': return withMood({ ...cared, activity: 'eating', hunger: clamp(r.hunger + 15), happiness: clamp(r.happiness + 5) });
+    case 'treat': return withMood({ ...cared, activity: 'eating', hunger: clamp(r.hunger + 25), happiness: clamp(r.happiness + 10) });
+    case 'bathe': return withMood({ ...cared, activity: 'bathing', cleanliness: clamp(r.cleanliness + 40), health: clamp(r.health + 5) });
+    case 'walk': return r.energy < 15 ? null : withMood({ ...cared, activity: 'walking', happiness: clamp(r.happiness + 20), energy: clamp(r.energy - 10), health: clamp(r.health + 5), hunger: clamp(r.hunger - 5) });
+    case 'play': return r.energy < 10 ? null : withMood({ ...cared, activity: 'playing', happiness: clamp(r.happiness + 15), energy: clamp(r.energy - 8), hunger: clamp(r.hunger - 5) });
+  }
+}
+
+/** Fin de una acción: vuelve a 'idle' solo si sigue haciendo esa misma actividad. */
+export function endActivity(s: PetData, activity: PetData['activity']): PetData | null {
+  return s.activity === activity && !s.isAsleep ? withMood({ ...s, activity: 'idle' }) : null;
+}
+
+/** Campos que escriben los clientes. Nunca nombre, createdAt ni tokens (así no se pisan entre móviles). */
+export function syncedFields(s: PetData) {
+  const { hunger, happiness, cleanliness, energy, health, mood, activity, isAsleep, lastUpdated, totalCaresGiven } = s;
+  return { hunger, happiness, cleanliness, energy, health, mood, activity, isAsleep, lastUpdated, totalCaresGiven: totalCaresGiven ?? 0 };
 }

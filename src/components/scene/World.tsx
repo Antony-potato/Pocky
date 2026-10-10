@@ -1,5 +1,5 @@
 'use client';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
@@ -36,7 +36,14 @@ function CameraRig() {
   );
 }
 
-export default function World({ hour }: { hour: number }) {
+// Avisa tras el primer frame pintado (shaders compilados, escena visible) para cerrar la pantalla de carga.
+function FirstFrame({ onReady }: { onReady?: () => void }) {
+  const done = useRef(false);
+  useFrame(() => { if (!done.current) { done.current = true; onReady?.(); } });
+  return null;
+}
+
+export default function World({ hour, onReady }: { hour: number; onReady?: () => void }) {
   const ph = getTimePhase(hour);
   return (
     <Canvas shadows="percentage" orthographic flat dpr={[1, 2]} camera={{ position: OFFSET, zoom: 40, near: 0.1, far: 100 }}>
@@ -51,6 +58,7 @@ export default function World({ hour }: { hour: number }) {
       <Island waterColor={ph.water} glow={ph.glow} />
       <Pocky />
       <CameraRig />
+      <FirstFrame onReady={onReady} />
     </Canvas>
   );
 }

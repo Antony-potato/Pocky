@@ -5,9 +5,7 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        outfit: ['var(--font-outfit)', 'system-ui', 'sans-serif'],
-        inter:  ['var(--font-inter)', 'system-ui', 'sans-serif'],
-        caveat: ['var(--font-caveat)', 'cursive'],
+        nunito: ['var(--font-nunito)', 'system-ui', 'sans-serif'],
         mono:   ['Courier New', 'Courier', 'monospace'],
       },
       colors: {

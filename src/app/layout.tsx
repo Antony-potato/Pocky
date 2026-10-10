@@ -1,25 +1,12 @@
 import type { Metadata, Viewport } from 'next';
-import { Outfit, Inter, Caveat } from 'next/font/google';
+import { Nunito } from 'next/font/google';
 import './globals.css';
 
-const outfit = Outfit({
+const nunito = Nunito({
   subsets: ['latin'],
-  variable: '--font-outfit',
+  variable: '--font-nunito',
   display: 'swap',
-  weight: ['400', '500', '600', '700', '800'],
-});
-
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
-  display: 'swap',
-});
-
-const caveat = Caveat({
-  subsets: ['latin'],
-  variable: '--font-caveat',
-  display: 'swap',
-  weight: ['400', '500', '600', '700'],
+  weight: ['600', '700', '800', '900'],
 });
 
 export const metadata: Metadata = {
@@ -28,7 +15,7 @@ export const metadata: Metadata = {
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'default',
+    statusBarStyle: 'black-translucent', // la escena se ve bajo la hora, sin franja blanca
     title: 'Pocky',
   },
   icons: {
@@ -37,7 +24,8 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: '#FFF5E4',
+  themeColor: '#151a19', // barra de estado de Android en el tono del HUD
+  viewportFit: 'cover', // ocupar toda la pantalla; el HUD respeta env(safe-area-inset-*)
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
@@ -46,8 +34,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es" className={`${outfit.variable} ${inter.variable} ${caveat.variable}`}>
-      <body className="antialiased font-inter">{children}</body>
+    <html lang="es" className={nunito.variable}>
+      <body className="antialiased font-nunito">{children}</body>
     </html>
   );
 }

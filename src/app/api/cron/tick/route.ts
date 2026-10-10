@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
-import { applyTick, getMood, getNeeds } from '@/lib/petLogic';
+import { applyTick, getNeeds } from '@/lib/petLogic';
 import { PetData } from '@/types/pet';
 
 // firebase-admin no funciona en edge: esta ruta se queda en el runtime de Node.
@@ -30,16 +30,22 @@ export async function GET(req: NextRequest) {
 
   try {
     const adminApp = getAdminApp();
-    const ref = getFirestore(adminApp).doc('pets/pocky');
-    const snap = await ref.get();
-    if (!snap.exists) return NextResponse.json({ message: 'No pet found' });
+    const firestore = getFirestore(adminApp);
+    const ref = firestore.doc('pets/pocky');
 
-    const pet = snap.data() as PetData;
-    const changes = applyTick(pet);
+    // Transacción: si un móvil guarda una acción a la vez, Firestore reintenta en vez de pisarla.
+    const res = await firestore.runTransaction(async tx => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) return null;
+      const pet = snap.data() as PetData;
+      const changes = applyTick(pet);
+      if (Object.keys(changes).length > 0) tx.update(ref, { ...changes, lastSyncedBy: 'cron', updatedAt: new Date() });
+      return { pet, changes };
+    });
+    if (!res) return NextResponse.json({ message: 'No pet found' });
+    const { pet, changes } = res;
     if (Object.keys(changes).length === 0) return NextResponse.json({ message: 'No changes needed' });
-
     const merged = { ...pet, ...changes } as PetData;
-    await ref.update({ ...changes, mood: getMood(merged), lastSyncedBy: 'cron', updatedAt: new Date() });
 
     // ----- Notificación (FCM: Chrome, Android y Safari/iPhone instalado) -----
     const needs = getNeeds(merged);

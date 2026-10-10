@@ -33,3 +33,56 @@ img {
   user-drag: none;
   pointer-events: none;
 }
+
+/* ===== Splash: la patita se dibuja, se llena y hace zoom de salida (src/components/Splash.tsx) ===== */
+.splash-bg { background: radial-gradient(120% 80% at 50% 42%, #263322 0%, #151a19 72%); }
+.splash-paw, .splash-paw-wrap { transform-origin: 50% 50%; will-change: transform; }
+.splash-empty-group { fill: rgba(255, 159, 67, 0.1); opacity: 0; animation: splash-fade-in 400ms ease-out 650ms forwards; }
+.splash-outline {
+  fill: none; stroke: #ff9f43; stroke-width: 3; stroke-linejoin: round;
+  stroke-dasharray: 1; stroke-dashoffset: 1;
+  animation: splash-draw 750ms cubic-bezier(0.65, 0, 0.35, 1) forwards; /* easeInOutCubic */
+}
+.splash-level { transition: transform 900ms cubic-bezier(0.22, 1, 0.36, 1); /* easeOutQuint: sube y frena */ }
+.splash-wave--front { fill: #ff9f43; animation: splash-wave 2.2s linear infinite; }
+.splash-wave--back { fill: #ffc078; animation: splash-wave-back 3.4s linear infinite; } /* paralaje: más lenta y al revés */
+.splash-bubble { fill: #fff; opacity: 0; animation: splash-bubble 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+.splash-shine { opacity: 0; }
+.splash-ripple { position: absolute; inset: 6%; border-radius: 9999px; border: 3px solid #ff9f43; opacity: 0; pointer-events: none; }
+.splash-title { opacity: 0; animation: splash-rise 600ms cubic-bezier(0.22, 1, 0.36, 1) 350ms forwards; }
+.splash-status { opacity: 0; animation: splash-fade-in 500ms ease-out 650ms forwards; }
+
+.splash--load .splash-paw { animation: splash-breathe 2.6s ease-in-out 1s infinite; }
+.splash--pop .splash-paw { animation: splash-pop 620ms cubic-bezier(0.33, 1, 0.68, 1) both; }
+.splash--pop .splash-ripple { animation: splash-ripple 750ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.splash--pop .splash-shine { animation: splash-shine 700ms cubic-bezier(0.65, 0, 0.35, 1) 100ms both; }
+.splash--exit .splash-paw-wrap { animation: splash-zoom 750ms cubic-bezier(0.7, 0, 0.84, 0) forwards; /* easeInExpo */ }
+.splash--exit .splash-bg { animation: splash-fade-out 500ms ease-out 250ms forwards; }
+.splash--exit .splash-title, .splash--exit .splash-status { animation: splash-fade-out 180ms ease-out forwards; }
+
+@keyframes splash-draw { to { stroke-dashoffset: 0; } }
+@keyframes splash-fade-in { to { opacity: 1; } }
+@keyframes splash-fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes splash-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes splash-wave { from { transform: translateX(0); } to { transform: translateX(-60px); } }
+@keyframes splash-wave-back { from { transform: translate(-60px, -3px); } to { transform: translate(0, -3px); } }
+@keyframes splash-bubble {
+  0% { opacity: 0; transform: translateY(0) scale(0.6); }
+  20% { opacity: 0.7; }
+  100% { opacity: 0; transform: translateY(-40px) scale(1.1); }
+}
+@keyframes splash-breathe { 50% { transform: scale(1.035); } }
+@keyframes splash-pop { /* anticipación → overshoot → asentarse */
+  0% { transform: scale(1); } 22% { transform: scale(0.9); } 62% { transform: scale(1.13); } 82% { transform: scale(0.98); } 100% { transform: scale(1); }
+}
+@keyframes splash-ripple { from { opacity: 0.7; transform: scale(0.7); } to { opacity: 0; transform: scale(1.9); } }
+@keyframes splash-shine { from { opacity: 1; transform: translateX(0); } to { opacity: 1; transform: translateX(200px); } }
+@keyframes splash-zoom {
+  0% { transform: scale(1); opacity: 1; } 18% { transform: scale(0.9); opacity: 1; } 70% { opacity: 1; } 100% { transform: scale(24); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash, .splash * { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; }
+  .splash-level { transition-duration: 200ms; }
+  .splash--exit .splash-paw-wrap, .splash--exit .splash-bg { animation: splash-fade-out 300ms ease-out forwards !important; }
+}

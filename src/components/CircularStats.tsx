@@ -1,99 +1,39 @@
 'use client';
-import { Bone, Smile, Droplets, Zap, Heart } from 'lucide-react';
+import { Utensils, Smile, Droplet, Zap, Heart } from 'lucide-react';
 
-interface CircularStatProps {
-  icon: React.ReactNode;
-  value: number;
-  color: string;       // tailwind stroke color class
-  strokeColor: string; // actual hex for SVG
-  label: string;
-}
+export const HUD_DARK = '#151a19';
+const R = 26, CIRC = 2 * Math.PI * R;
+const ICON = 'w-[42%] h-[42%]';
 
-function CircularStat({ icon, value, strokeColor, label }: CircularStatProps) {
-  const radius = 26;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (value / 100) * circumference;
-  const isLow = value < 20;
+type Stat = 'hunger' | 'happiness' | 'cleanliness' | 'energy' | 'health';
 
+const STATS: { key: Stat; label: string; color: string; icon: React.ReactNode }[] = [
+  { key: 'hunger', label: 'Hambre', color: '#ff9f43', icon: <Utensils className={ICON} strokeWidth={2.75} color="#ff9f43" /> },
+  { key: 'happiness', label: 'Felicidad', color: '#3ddc84', icon: <Smile className="w-1/2 h-1/2" fill="#3ddc84" color={HUD_DARK} strokeWidth={2.25} /> },
+  { key: 'cleanliness', label: 'Limpieza', color: '#38bdf8', icon: <Droplet className={ICON} fill="#38bdf8" color="#38bdf8" /> },
+  { key: 'energy', label: 'Energía', color: '#fcd34d', icon: <Zap className={ICON} fill="#fcd34d" color="#fcd34d" /> },
+  { key: 'health', label: 'Salud', color: '#ff5c7a', icon: <Heart className={ICON} fill="#ff5c7a" color="#ff5c7a" /> },
+];
+
+// Columna de anillos sin texto (el nombre va en aria-label / title).
+export default function CircularStats(props: Record<Stat, number>) {
   return (
-    <div className="flex flex-col items-center gap-0.5">
-      <div className="relative w-[60px] h-[60px]">
-        <svg className="w-full h-full -rotate-90" viewBox="0 0 64 64">
-          {/* Background ring */}
-          <circle
-            cx="32" cy="32" r={radius}
-            fill="none"
-            stroke="rgba(0,0,0,0.06)"
-            strokeWidth="5"
-          />
-          {/* Progress ring */}
-          <circle
-            cx="32" cy="32" r={radius}
-            fill="none"
-            stroke={isLow ? '#ef4444' : strokeColor}
-            strokeWidth="5"
-            strokeLinecap="round"
-            strokeDasharray={circumference}
-            strokeDashoffset={offset}
-            className="transition-all duration-700 ease-out"
-          />
-        </svg>
-        {/* Center icon */}
-        <div className={`absolute inset-0 flex items-center justify-center ${isLow ? 'animate-pulse' : ''}`}>
-          {icon}
-        </div>
-      </div>
-      <span className="text-[10px] font-inter font-medium text-gray-500 tracking-tight">{label}</span>
-    </div>
-  );
-}
-
-interface Props {
-  hunger: number;
-  happiness: number;
-  cleanliness: number;
-  energy: number;
-  health: number;
-}
-
-export default function CircularStats({ hunger, happiness, cleanliness, energy, health }: Props) {
-  return (
-    <div className="flex items-center justify-center gap-3">
-      <CircularStat
-        icon={<Bone size={20} className="text-orange-500" />}
-        value={hunger}
-        color="text-orange-400"
-        strokeColor="#fb923c"
-        label="Hambre"
-      />
-      <CircularStat
-        icon={<Smile size={20} className="text-green-500" />}
-        value={happiness}
-        color="text-green-400"
-        strokeColor="#4ade80"
-        label="Felicidad"
-      />
-      <CircularStat
-        icon={<Droplets size={20} className="text-sky-500" />}
-        value={cleanliness}
-        color="text-sky-400"
-        strokeColor="#38bdf8"
-        label="Limpieza"
-      />
-      <CircularStat
-        icon={<Zap size={20} className="text-yellow-500" />}
-        value={energy}
-        color="text-yellow-400"
-        strokeColor="#facc15"
-        label="Energía"
-      />
-      <CircularStat
-        icon={<Heart size={20} className="text-red-400" />}
-        value={health}
-        color="text-red-400"
-        strokeColor="#f87171"
-        label="Salud"
-      />
+    <div className="flex flex-col gap-2.5">
+      {STATS.map(s => {
+        const v = props[s.key], low = v < 20;
+        return (
+          <div key={s.key} className="relative w-[var(--ring,2.25rem)] h-[var(--ring,2.25rem)]" role="img" aria-label={`${s.label}: ${Math.round(v)}%`} title={`${s.label}: ${Math.round(v)}%`}>
+            <svg className="w-full h-full -rotate-90" viewBox="0 0 64 64">
+              <circle cx="32" cy="32" r={R} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="7" />
+              <circle
+                cx="32" cy="32" r={R} fill="none" stroke={low ? '#ef4444' : s.color} strokeWidth="7" strokeLinecap="round"
+                strokeDasharray={CIRC} strokeDashoffset={CIRC * (1 - v / 100)} className="transition-all duration-700 ease-out"
+              />
+            </svg>
+            <div className={`absolute inset-0 flex items-center justify-center ${low ? 'animate-pulse' : ''}`}>{s.icon}</div>
+          </div>
+        );
+      })}
     </div>
   );
 }
