@@ -60,7 +60,7 @@ export function shaded(params: THREE.MeshStandardMaterialParameters, p: Patch) {
 // Variación suave de tono en el mundo: rompe el color plano sin que se vea una textura.
 export const VARY = 'diffuseColor.rgb *= .93 + .14 * vnoise(vW.xz * 3.1 + vW.y * 2.3);';
 
-// Esfera con lóbulos (copas, arbustos, rocas): domos repartidos por la superficie que se solapan
+// Esfera con lóbulos (base de cada mata de copas y arbustos, ver foliage() en shapes.ts): domos repartidos por la superficie que se solapan
 // y dejan pliegues entre ellos; normales suaves, así no se ve el facetado de la malla.
 export function blob(seed: number, lobes: number, amp: number, detail = 5) {
   let g: THREE.BufferGeometry = new THREE.IcosahedronGeometry(1, detail);

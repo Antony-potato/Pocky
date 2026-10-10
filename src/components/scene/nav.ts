@@ -11,7 +11,7 @@ export const NODES = {
 
 export type NodeId = keyof typeof NODES;
 
-const EDGES: [NodeId, NodeId][] = [
+export const EDGES: [NodeId, NodeId][] = [
   ['s2', 's'], ['s', 'c'], ['c', 'n'], ['n', 'n2'], ['c', 'door'], ['door', 'garden'],
   ['garden', 'meadow'], ['meadow', 's'], ['meadow', 'c'], ['s', 'field'], ['c', 'field'],
   ['field', 'bath'], ['s', 'southR'], ['c', 'picnic'], ['picnic', 'play'], ['field', 'play'],

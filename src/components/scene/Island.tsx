@@ -4,10 +4,16 @@ import { useFrame } from '@react-three/fiber';
 import type { ThreeElements } from '@react-three/fiber';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { rng, uTime, shaded, VARY, blob, smoothSlab } from './materials';
+import { rng, uTime, shaded, VARY, smoothSlab } from './materials';
+import {
+  ROCKS, ROCKS_LO, ROCK_HW, FLAGS, TREE_KINDS, BUSH_KINDS, IVY, TUFTS, SPROUT, FLOWER, FLOWER_CORE, BLOSSOM_CORE, LOTUS, LILY_PAD,
+  CATTAIL, LOG, FLAME, SHINGLE, post,
+} from './shapes';
+import { NODES, EDGES } from './nav';
 
 // Isla generada por código (sin modelos externos). Mundo: x derecha, z hacia la cámara (sur), y arriba.
 // La hierba está en y = 0. Las posiciones de los sitios coinciden con los nodos de nav.ts.
+// Los modelos (rocas, árboles, hierba, flores...) están en shapes.ts; aquí se colocan.
 
 export const RX = 9.6;
 export const RZ = 7.4;
@@ -19,30 +25,41 @@ const C = {
   trunk: '#8a5a3b', wood: '#a86f42', woodDark: '#8b5a33', leaf: ['#7cbf4e', '#8ed05c', '#6db347'],
   bush: '#6aad45', rim: '#d9c99c',
 };
+const WOODS = ['#a86f42', '#b57a4a', '#9c6640', '#b0784a', '#a26a3f'];
+const DARK_WOODS = ['#8b5a33', '#7f5230', '#93603a'];
+const GRASS_TONES = ['#78b84a', '#6aa843', '#86c254'];
+const pick = <T,>(a: T[], r: () => number) => a[Math.floor(r() * a.length)];
 
 const SPHERE = new THREE.SphereGeometry(1, 16, 12);
 const CYL = new THREE.CylinderGeometry(1, 1, 1, 16);
-const TRUNK = new THREE.CylinderGeometry(0.75, 1, 1, 14);
 const BOX = new RoundedBoxGeometry(1, 1, 1, 2, 0.14); // cantos redondeados; con escala no uniforme el bisel se adapta a cada pieza
-const CONE = new THREE.ConeGeometry(1, 1, 7);
-const LEAF = blob(3, 26, 0.17, 6); // copas y arbustos: bola con muchos lóbulos pequeños
-const ROCK = blob(5, 6, 0.14, 3);
+const MOUND = new THREE.CapsuleGeometry(0.5, 4, 4, 12).rotateZ(Math.PI / 2); // caballón del huerto
+const FENCE_POST = post(0.13, 0.64);
+const POST = post(0.11, 1); // se estira en y por instancia
+const CANOPIES = TREE_KINDS.map(k => k.canopy), TRUNKS = TREE_KINDS.map(k => k.trunk), BUSH_GEOS = BUSH_KINDS.map(k => k.geo);
+const Y = new THREE.Vector3(0, 1, 0);
 
+// Vetas: ruido en coordenadas locales de la caja unidad; al escalarla se estira a lo largo de la pieza.
+const WOOD = 'diffuseColor.rgb *= .88 + .2 * vnoise(vL.xy * 7. + vL.z * 5.);';
 const MAT = {
   vary: shaded({ roughness: 0.9 }, { key: 'vary', color: VARY }),
-  // Copas con volumen: más oscuras por debajo (oclusión) y con manchas suaves de tono.
-  leaf: shaded({ roughness: 0.85 }, {
-    key: 'leaf',
-    color: 'diffuseColor.rgb *= mix(.58, 1.1, smoothstep(-.95, .85, vL.y)) * (.92 + .16 * vnoise(vW.xz * .8 + vW.y * 1.3));',
-  }),
-  rock: shaded({ roughness: 0.92 }, {
+  vcol: shaded({ roughness: 0.9, vertexColors: true }, { key: 'vary', color: VARY }),
+  wood: shaded({ roughness: 0.85 }, { key: 'wood', color: WOOD }),
+  // El volumen (pliegues, parte baja, brillo arriba) viene en el color por vértice; aquí solo manchas de tono.
+  foliage: shaded({ roughness: 0.85, vertexColors: true }, { key: 'foliage', color: 'diffuseColor.rgb *= .9 + .2 * vnoise(vW.xz * .9 + vW.y * 1.4);' }),
+  bark: shaded({ roughness: 0.95, vertexColors: true }, { key: 'bark', color: 'diffuseColor.rgb *= .8 + .28 * vnoise(vec2((vL.x - vL.z) * 9., vL.y * 1.4));' }),
+  // Rocas (altura 1, base en 0): pie oscuro, cara de arriba clara, vetas suaves y tono algo cálido o frío por zonas.
+  rock: shaded({ roughness: 0.9 }, {
     key: 'rock',
-    color: 'diffuseColor.rgb *= mix(.74, 1.05, smoothstep(-.9, .9, vL.y)) * (.9 + .18 * vnoise(vL.xz * 2.5 + vL.y * 3.));',
+    color: /* glsl */ `
+      float n = vnoise(vL.xz * 3. + vL.y * 4.) * .6 + vnoise(vW.xz * 9. + vW.y * 7.) * .4;
+      diffuseColor.rgb *= mix(.64, 1.07, smoothstep(0., .6, vL.y)) * (.87 + .22 * n);
+      diffuseColor.rgb *= mix(vec3(1.04, 1., .94), vec3(.95, .98, 1.03), vnoise(vW.xz * .45 + 3.));`,
   }),
 };
 
 type V3 = [number, number, number];
-type Item = { p: V3; s?: number | V3; r?: number; c?: string };
+type Item = { p: V3; s?: number | V3; r?: number | V3; c?: string; v?: number }; // r: giro en y o Euler; v: variante
 
 // Caja con cantos redondeados y normales limpias (el RoundedBox de drei suaviza las normales hasta dentro
 // de las caras grandes y deja un marco oscuro en las paredes).
@@ -60,7 +77,8 @@ function Scatter({ items, geo, color = '#ffffff', shadow = true, glow = false, m
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), col = new THREE.Color();
     items.forEach((it, i) => {
       const s = Array.isArray(it.s) ? it.s : [it.s ?? 1, it.s ?? 1, it.s ?? 1];
-      m.compose(new THREE.Vector3(...it.p), q.setFromEuler(e.set(0, it.r ?? 0, 0)), new THREE.Vector3(...s));
+      const r = Array.isArray(it.r) ? it.r : [0, it.r ?? 0, 0];
+      m.compose(new THREE.Vector3(...it.p), q.setFromEuler(e.set(r[0], r[1], r[2])), new THREE.Vector3(...s));
       ref.current.setMatrixAt(i, m);
       ref.current.setColorAt(i, col.set(it.c ?? color));
     });
@@ -75,16 +93,21 @@ function Scatter({ items, geo, color = '#ffffff', shadow = true, glow = false, m
   );
 }
 
+// Varias geometrías de la misma pieza (variantes): cada item elige la suya con `v`. Una draw call por variante.
+function Variants({ geos, items, ...rest }: Omit<Parameters<typeof Scatter>[0], 'geo'> & { geos: THREE.BufferGeometry[] }) {
+  const groups = useMemo(() => geos.map((_, k) => items.filter(it => (it.v ?? 0) % geos.length === k)), [geos, items]);
+  return <>{groups.map((g, k) => g.length > 0 && <Scatter key={k} geo={geos[k]} items={g} {...rest} />)}</>;
+}
+
 // ---------- Layout ----------
 
 const PATHS: { pts: [number, number][]; w: number }[] = [
   { pts: [[-3.2, 7.2], [-2.4, 4.6], [-0.8, 2.0], [0, -0.5], [0.4, -3.5], [0.6, -7.3]], w: 0.8 },
   { pts: [[0.1, -1.3], [2.5, -1.3], [4.4, -0.9], [5.3, -1.4]], w: 0.62 },
 ];
-const PATH_PTS = PATHS.flatMap(({ pts, w }) => {
-  const curve = new THREE.CatmullRomCurve3(pts.map(([x, z]) => new THREE.Vector3(x, 0, z)));
-  return curve.getSpacedPoints(Math.ceil(curve.getLength() / 0.22)).map(v => ({ x: v.x, z: v.z, w }));
-});
+const PATH_CURVES = PATHS.map(({ pts, w }) => ({ w, curve: new THREE.CatmullRomCurve3(pts.map(([x, z]) => new THREE.Vector3(x, 0, z))) }));
+const PATH_PTS = PATH_CURVES.flatMap(({ curve, w }) => curve.getSpacedPoints(Math.ceil(curve.getLength() / 0.22)).map(v => ({ x: v.x, z: v.z, w })));
+const pathWidth = (u: number, w: number, k: number) => w * (1 + 0.12 * Math.sin(u * 37 + k) + 0.08 * Math.sin(u * 91 + 2 * k));
 
 const PONDS = [
   { x: 3.8, z: 3.4, rx: 2.3, rz: 1.4 },
@@ -106,7 +129,6 @@ function pondOutline(grow: number, n = 72) {
   });
 }
 const TREES: V3[] = [[-8.5, -2.4, 1.0], [-4.6, -6.0, 1.15], [-1.8, -6.4, 0.95], [4.2, -5.2, 1.5], [7.6, -4.0, 1.0], [-9.0, -0.6, 0.8], [8.9, -1.8, 0.85], [2.9, -6.4, 0.85]];
-const CANOPY: [number, number, number, number][] = [[0, 2.3, 0, 1.0], [0.8, 2.0, 0.25, 0.75], [-0.75, 2.05, 0.1, 0.78], [0.15, 1.95, 0.8, 0.72], [-0.1, 2.1, -0.75, 0.76], [0.4, 2.85, -0.1, 0.7], [-0.35, 2.75, 0.3, 0.66]];
 const BUSHES: [number, number, number, boolean][] = [[-3.5, -2.1, 0.8, true], [-7.3, -1.2, 0.7, false], [-8.4, 3.3, 0.8, false], [-6.0, 5.0, 0.7, true], [1.7, -4.8, 0.7, true], [-1.0, -4.8, 0.6, false], [8.4, 2.4, 0.7, false], [5.9, 5.5, 0.6, true], [-2.6, -5.2, 0.7, false], [6.4, -3.8, 0.7, true]];
 const HOUSE = { x: -5.5, z: -3.0 };
 const FIRE = { x: 5.9, z: -2.3 };
@@ -117,11 +139,16 @@ const inRect = (x: number, z: number, [x0, z0, x1, z1]: number[]) => x > x0 && x
 const BLOCKED_RECTS = [[-7.4, -4.7, -3.6, -1.3], [-8.9, 0.4, -5.9, 2.8], [2.2, -4.3, 4.6, -2.3]];
 const BLOCKED_SPOTS: V3[] = [[FIRE.x, FIRE.z, 1.0], [BED.x, BED.z, 0.8], [8.6, 1.2, 0.9], [8.0, -2.6, 0.9]];
 
-// Rocas de la orilla, medio metidas en el agua (y = -1.5): las pequeñas bajan para tocarla.
-const SHORE_ROCKS: Item[] = ([[200, 1.1], [150, 0.9], [25, 1.2], [340, 0.85], [75, 0.9], [112, 0.7], [255, 0.8]] as const).map(([deg, s]) => {
+// Roca de altura h y semiancho hw (las variantes miden 1 de alto), con la base en y.
+const rockItem = (x: number, y: number, z: number, hw: number, h: number, v: number, r: number, tilt = 0): Item =>
+  ({ p: [x, y, z], s: [hw / ROCK_HW[v], h, hw / ROCK_HW[v]], r: [Math.sin(r * 3) * tilt, r, Math.cos(r * 2) * tilt], v });
+// Rocas de la orilla, con el pie dentro del agua (y = -1.5): [ángulo, semiancho, altura de la cima, variante].
+const SHORE_ROCKS = ([[200, 1.1, 0.2, 0], [150, 0.9, -0.05, 2], [25, 1.2, 0.3, 0], [340, 0.85, -0.1, 3], [75, 0.9, -0.05, 2], [112, 0.7, -0.4, 1], [255, 0.8, -0.2, 3]] as const).map(([deg, hw, top, v]) => {
   const [x, z] = edgeAt((deg * Math.PI) / 180, 1.04);
-  return { p: [x, Math.min(-0.75, -1.62 + 0.85 * s), z], s: [1.0 * s, 0.85 * s, 0.9 * s], r: deg };
+  return { ...rockItem(x, -1.65, z, hw, top + 1.65, v, deg, 0.08), hw };
 });
+// Rocas sueltas por el césped: [x, z, semiancho, alto, variante]. Una grande con otra pequeña al lado.
+const FIELD_ROCKS: [number, number, number, number, number][] = [[-7.2, 4.4, 0.5, 0.58, 0], [-7.85, 3.85, 0.36, 0.3, 1], [1.2, 5.7, 0.46, 0.5, 2], [1.85, 5.4, 0.32, 0.26, 3], [-4.2, -4.7, 0.3, 0.3, 0]];
 
 // ---------- Shaders del suelo y del agua (GLSL inyectado en MeshStandardMaterial, ver materials.ts) ----------
 
@@ -133,7 +160,8 @@ const pondField = (grow: number) => `min(${PONDS.map(p => `length((p - vec2(${f(
 const OCCLUDERS: V3[] = [
   ...TREES.map(([x, z, s]): V3 => [x, z, 1.3 * s]),
   ...BUSHES.map(([x, z, s]): V3 => [x, z, 1.0 * s]),
-  [-7.2, 4.4, 0.7], [1.2, 5.7, 0.6], [FIRE.x, FIRE.z, 0.8], [8.0, -2.6, 1.0],
+  ...FIELD_ROCKS.map(([x, z, hw]): V3 => [x, z, hw * 1.45]),
+  [FIRE.x, FIRE.z, 0.8], [8.0, -2.6, 1.0],
 ];
 
 const GRASS = shaded({ color: C.grass, roughness: 0.95 }, {
@@ -169,7 +197,8 @@ const DIRT = shaded({ color: C.dirt, roughness: 1 }, {
     diffuseColor.rgb *= mix(.6, 1.04, smoothstep(-2.4, -.5, vW.y)) * mix(.78, 1., smoothstep(-1.52, -1.32, vW.y));`,
 });
 
-const PATH = shaded({ color: C.path, roughness: 1 }, {
+// Tierra del camino; el color por vértice oscurece el borde (tierra pisada) y aclara el centro.
+const PATH = shaded({ color: C.path, roughness: 1, vertexColors: true }, {
   key: 'path',
   color: 'diffuseColor.rgb *= (.92 + .14 * vnoise(vW.xz * 1.6)) * (1. - .1 * smoothstep(.62, .8, vnoise(vW.xz * 7.)));',
 });
@@ -222,10 +251,7 @@ const waterMat = (key: string, head: string, color: string, k: { wave: number; r
 };
 
 const SEA = waterMat('sea', /* glsl */ `
-  const vec3 ROCKS[${SHORE_ROCKS.length}] = vec3[](${SHORE_ROCKS.map(({ p: [x, y, z], s }) => {
-    const [sx, sy, sz] = s as V3; // radio de la roca a la altura del agua
-    return `vec3(${f(x)}, ${f(z)}, ${f(((sx + sz) / 2) * Math.sqrt(Math.max(0, 1 - ((-1.5 - y) / sy) ** 2)))})`;
-  }).join(', ')});
+  const vec3 ROCKS[${SHORE_ROCKS.length}] = vec3[](${SHORE_ROCKS.map(({ p: [x, , z], hw }) => `vec3(${f(x)}, ${f(z)}, ${f(hw * 0.95)})`).join(', ')});
   float shore(vec2 p) { // distancia aproximada a la orilla (pared de tierra y rocas)
     float a = atan(p.y / ${f(RZ)}, p.x / ${f(RX)});
     float e = 1. + .05 * sin(3. * a + 1.) + .03 * sin(5. * a + 2.);
@@ -260,8 +286,16 @@ function isFree(x: number, z: number) {
   if (PATH_PTS.some(p => Math.hypot(p.x - x, p.z - z) < p.w + 0.3)) return false;
   if (PONDS.some(p => inEllipse(x, z, p.x, p.z, p.rx + 0.5, p.rz + 0.5))) return false;
   if (BLOCKED_RECTS.some(r => inRect(x, z, r))) return false;
+  if (TREES.some(([tx, tz, s]) => Math.hypot(tx - x, tz - z) < 0.55 * s)) return false; // pie del tronco con raíces
   return !BLOCKED_SPOTS.some(([sx, sz, r]) => Math.hypot(sx - x, sz - z) < r);
 }
+
+// Lejos de las aristas por las que anda Pocky (la hierba alta no se le mete entre las patas).
+const segDist = (x: number, z: number, [ax, az]: readonly number[], [bx, bz]: readonly number[]) => {
+  const dx = bx - ax, dz = bz - az, t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz)));
+  return Math.hypot(x - ax - dx * t, z - az - dz * t);
+};
+const offNav = (x: number, z: number) => EDGES.every(([a, b]) => segDist(x, z, NODES[a], NODES[b]) > 0.45);
 
 function scatterFree(seed: number, count: number, make: (x: number, z: number, r: () => number) => Item | Item[]) {
   const r = rng(seed), out: Item[] = [];
@@ -272,38 +306,66 @@ function scatterFree(seed: number, count: number, make: (x: number, z: number, r
   return out;
 }
 
-// Caminos: cinta plana con ancho ondulado a lo largo de cada curva (sin costuras, una malla por camino).
-function PathRibbons() {
-  const geos = useMemo(() => PATHS.map(({ pts, w }, k) => {
-    const curve = new THREE.CatmullRomCurve3(pts.map(([x, z]) => new THREE.Vector3(x, 0, z)));
-    const n = Math.ceil(curve.getLength() / 0.25), left: THREE.Vector2[] = [], right: THREE.Vector2[] = [];
-    for (let i = 0; i <= n; i++) {
-      const u = i / n, p = curve.getPointAt(u), tg = curve.getTangentAt(u);
-      const ww = w * (1 + 0.12 * Math.sin(u * 37 + k) + 0.08 * Math.sin(u * 91 + 2 * k));
-      left.push(new THREE.Vector2(p.x - tg.z * ww, -(p.z + tg.x * ww)));
-      right.push(new THREE.Vector2(p.x + tg.z * ww, -(p.z - tg.x * ww)));
+// Puntos sueltos a lo largo de los bordes de los caminos (guijarros, hierba que se mete en la tierra).
+function pathEdges(seed: number, step: number, prob: number, [o0, o1]: [number, number]) {
+  const r = rng(seed), out: [number, number][] = [];
+  PATH_CURVES.forEach(({ curve, w }, k) => {
+    const n = Math.floor(curve.getLength() / step);
+    for (let i = 1; i < n; i++) for (const side of [-1, 1]) {
+      if (r() > prob) continue;
+      const u = Math.min(1, Math.max(0, (i + r() - 0.5) / n)), p = curve.getPointAt(u), tg = curve.getTangentAt(u);
+      const d = pathWidth(u, w, k) * (o0 + r() * (o1 - o0)) * side, x = p.x - tg.z * d, z = p.z + tg.x * d;
+      if (inEllipse(x, z, 0, 0, RX - 0.6, RZ - 0.6) && !PONDS.some(q => inEllipse(x, z, q.x, q.z, q.rx + 0.4, q.rz + 0.4)) && !BLOCKED_RECTS.some(b => inRect(x, z, b))) out.push([x, z]);
     }
-    const g = new THREE.ShapeGeometry(new THREE.Shape([...left, ...right.reverse()]));
-    g.rotateX(-Math.PI / 2);
-    g.translate(0, 0.015 + k * 0.003, 0);
-    return g;
-  }), []);
-  const [ex, ez] = PATHS[1].pts.at(-1)!;
-  return (
-    <>
-      {geos.map((g, i) => <mesh key={i} geometry={g} material={PATH} receiveShadow />)}
-      <mesh position={[ex, 0.019, ez]} rotation-x={-Math.PI / 2} material={PATH} receiveShadow><circleGeometry args={[PATHS[1].w, 20]} /></mesh>
-    </>
-  );
+  });
+  return out;
 }
 
-function fence(points: [number, number][]) {
-  const posts: Item[] = [], rails: Item[] = [];
+// Caminos: cinta con ancho ondulado a lo largo de cada curva, cinco vértices de ancho para oscurecer el borde
+// con el color por vértice. El camino corto acaba en una placita redonda.
+function PathRibbons() {
+  const geo = useMemo(() => {
+    const P: number[] = [], Cl: number[] = [], I: number[] = [];
+    const across = [-1, -0.72, 0, 0.72, 1], shade = [0.9, 1.0, 1.05, 1.0, 0.9];
+    PATH_CURVES.forEach(({ curve, w }, k) => {
+      const n = Math.ceil(curve.getLength() / 0.12), y = 0.015 + k * 0.003, base = P.length / 3;
+      for (let i = 0; i <= n; i++) {
+        const u = i / n, p = curve.getPointAt(u), tg = curve.getTangentAt(u), ww = pathWidth(u, w, k);
+        across.forEach((o, j) => {
+          const wl = ww * o * (Math.abs(o) === 1 ? 1 + 0.05 * Math.sin(u * 260 + j + k) : 1); // borde mordido
+          P.push(p.x - tg.z * wl, y, p.z + tg.x * wl);
+          Cl.push(shade[j], shade[j], shade[j]);
+        });
+        if (i < n) for (let j = 0; j < 4; j++) { const a = base + i * 5 + j, b = a + 5; I.push(a, a + 1, b, a + 1, b + 1, b); }
+      }
+    });
+    const [ex, ez] = PATHS[1].pts.at(-1)!, c0 = P.length / 3, seg = 24;
+    P.push(ex, 0.019, ez); Cl.push(1.05, 1.05, 1.05);
+    for (let i = 0; i < seg; i++) {
+      const a = (i / seg) * Math.PI * 2, rr = PATHS[1].w * (1 + 0.06 * Math.sin(a * 5));
+      P.push(ex + Math.cos(a) * rr, 0.019, ez + Math.sin(a) * rr); Cl.push(0.9, 0.9, 0.9);
+      I.push(c0, c0 + 1 + ((i + 1) % seg), c0 + 1 + i);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(P.map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(Cl, 3));
+    g.setIndex(I);
+    return g;
+  }, []);
+  return <mesh geometry={geo} material={PATH} receiveShadow />;
+}
+
+// Valla: postes con remate, algo torcidos y de alturas distintas; travesaños que atraviesan los postes.
+function fence(points: [number, number][], seed: number) {
+  const r = rng(seed), j = (k: number) => (r() - 0.5) * k, posts: Item[] = [], rails: Item[] = [];
   for (let i = 0; i < points.length - 1; i++) {
     const [x0, z0] = points[i], [x1, z1] = points[i + 1];
-    const dx = x1 - x0, dz = z1 - z0, len = Math.hypot(dx, dz), n = Math.max(1, Math.round(len / 0.75));
-    for (let k = 0; k <= n; k++) if (k < n || i === points.length - 2) posts.push({ p: [x0 + (dx * k) / n, 0.35, z0 + (dz * k) / n], s: [0.13, 0.7, 0.13] });
-    for (const y of [0.3, 0.55]) rails.push({ p: [(x0 + x1) / 2, y, (z0 + z1) / 2], s: [len, 0.08, 0.06], r: Math.atan2(-dz, dx) });
+    const dx = x1 - x0, dz = z1 - z0, len = Math.hypot(dx, dz), n = Math.max(1, Math.round(len / 0.75)), ry = Math.atan2(-dz, dx);
+    for (let k = 0; k <= n; k++) if (k < n || i === points.length - 2) {
+      posts.push({ p: [x0 + (dx * k) / n, -0.02, z0 + (dz * k) / n], s: [1, 0.94 + r() * 0.12, 1], r: [j(0.07), ry + j(0.3), j(0.07)], c: pick(DARK_WOODS, r) });
+    }
+    for (const y of [0.3, 0.52]) rails.push({ p: [(x0 + x1) / 2, y + j(0.03), (z0 + z1) / 2], s: [len + 0.08, 0.075, 0.055], r: [j(0.05), ry, j(0.025)], c: pick(WOODS, r) });
   }
   return { posts, rails };
 }
@@ -361,29 +423,91 @@ const STONE = /* glsl */ `
   b.x += mod(floor(b.y), 2.) * .5;
   vec2 e = min(fract(b), 1. - fract(b)) / vec2(2.6, 5.);
   diffuseColor.rgb *= (.9 + .18 * h21(floor(b))) * mix(.72, 1., smoothstep(.006, .022, min(e.x, e.y)));`;
-// Tejado: hileras de tejas (sombra bajo la de encima), juntas alternas y un tono distinto por teja.
-// Las juntas se desvanecen con fwidth cuando la casa se ve pequeña (sin moiré).
-const ROOF = /* glsl */ `
-  float k = vL.y * 4.2 + .045 * sin(vL.x * 4.), id = floor(k), row = fract(k);
-  float u = vL.x * 2.1 + id * .5, sx = fract(u);
-  diffuseColor.rgb *= (.92 + .14 * h21(vec2(floor(u), id))) * mix(.68, 1.04, 1. - smoothstep(.4, 1., row));
-  diffuseColor.rgb *= mix(1. - .1 * (1. - smoothstep(0., .08, min(sx, 1. - sx))), 1., smoothstep(.05, .15, fwidth(u)));
-  diffuseColor.rgb *= mix(.8, 1.05, smoothstep(0., 1.4, vL.y));`;
 const HOUSE_MAT = {
   base: shaded({ color: '#c9baa3', roughness: 0.95 }, { key: 'stone', color: STONE }),
-  wall: shaded({ color: '#f4dfbd', roughness: 0.9 }, { key: 'vary', color: VARY }),
+  // enlucido: algo más oscuro al pie (oclusión con el zócalo) y bajo el alero
+  wall: shaded({ color: '#f4dfbd', roughness: 0.9 }, { key: 'wall', color: `${VARY} diffuseColor.rgb *= mix(.82, 1., smoothstep(-1.05, -.55, vL.y)) * mix(1., .84, smoothstep(.7, 1.05, vL.y));` }),
+  gable: shaded({ color: '#f4dfbd', roughness: 0.9 }, { key: 'vary', color: VARY }),
   chimney: shaded({ color: '#b4aca2', roughness: 0.95 }, { key: 'stone', color: STONE }),
-  roof: shaded({ color: '#d6a05e', roughness: 1 }, { key: 'roof', color: ROOF }),
+  // tejas: más oscuras en la parte alta de cada pieza, que queda bajo la hilera de encima
+  shingle: shaded({ roughness: 1 }, { key: 'shingle', color: 'diffuseColor.rgb *= (.93 + .14 * vnoise(vL.xz * vec2(3., 9.) + vW.y)) * mix(.64, 1.06, smoothstep(-.5, .42, vL.z));' }),
+  // puerta de tablas verticales con juntas
+  door: shaded({ color: C.woodDark, roughness: 0.85 }, {
+    key: 'door',
+    color: 'float u = vL.x * 5.13 + .5, k = fract(u); diffuseColor.rgb *= (.88 + .16 * h21(vec2(floor(u), 3.))) * mix(.6, 1., smoothstep(0., .08, min(k, 1. - k)));',
+  }),
+  frame: shaded({ color: C.wood, roughness: 0.85 }, { key: 'wood', color: WOOD }),
 };
 
+// Arco de puerta: rectángulo con medio círculo encima (vale para Shape y para el hueco).
+const arch = <T extends THREE.Path>(p: T, w: number, h: number) => {
+  p.moveTo(-w / 2, 0); p.lineTo(w / 2, 0); p.lineTo(w / 2, h); p.absarc(0, h, w / 2, 0, Math.PI, false); p.lineTo(-w / 2, 0);
+  return p;
+};
+
+const ROOF = { eave: 1.75, rise: 1.45, y: 2.25, half: 1.9 }; // alero a 1.75 del centro, cumbrera 1.45 por encima del muro
+const PITCH = Math.atan2(ROOF.rise, ROOF.eave), SLOPE = Math.hypot(ROOF.eave, ROOF.rise);
+
 function House({ glow }: { glow: number }) {
-  const roof = useMemo(() => {
-    const s = new THREE.Shape([new THREE.Vector2(-1.85, 0), new THREE.Vector2(1.85, 0), new THREE.Vector2(0, 1.55)]);
-    const g = new THREE.ExtrudeGeometry(s, { depth: 3.4, bevelEnabled: true, bevelThickness: 0.14, bevelSize: 0.14, bevelSegments: 3 });
-    g.translate(0, 0, -1.7);
-    g.rotateY(Math.PI / 2);
-    return g;
+  const d = useMemo(() => {
+    const r = rng(5), j = (k: number) => (r() - 0.5) * k;
+    // hastial: pentágono de enlucido que cierra el muro hasta el tejado
+    const gs = new THREE.Shape([[-1.3, 0], [1.3, 0], [1.3, 0.35], [0, 1.42], [-1.3, 0.35]].map(([x, y]) => new THREE.Vector2(x, y)));
+    const gable = new THREE.ExtrudeGeometry(gs, { depth: 3.0, bevelEnabled: false });
+    gable.translate(0, 0, -1.5);
+    gable.rotateY(Math.PI / 2);
+
+    // Tejas: hileras al tresbolillo, cada una algo menos inclinada que el tejado para que el borde de abajo
+    // asome sobre la de debajo. Todas con un poco de giro, ancho y tono distintos.
+    const shingles: Item[] = [], rows = 7, cols = 12, sw = (2 * ROOF.half) / cols;
+    const at = (side: number, u: number, out: number): V3 =>
+      [0, ROOF.y + ROOF.rise * u + Math.cos(PITCH) * out, side * (ROOF.eave * (1 - u) + Math.sin(PITCH) * out)];
+    for (const side of [1, -1]) for (let row = 0; row < rows; row++) {
+      const odd = row % 2, u = (row + 0.5) / rows;
+      for (let k = 0; k < cols + odd; k++) {
+        const half = odd && (k === 0 || k === cols); // las de los extremos de las hileras impares, medias
+        const x = half ? (k === 0 ? -1 : 1) * (ROOF.half - sw / 4) : -ROOF.half + (k + (odd ? 0 : 0.5)) * sw;
+        const [, y, z] = at(side, u, 0.05 + row * 0.006);
+        shingles.push({
+          p: [x + j(0.02), y, z], s: [((half ? sw / 2 : sw) - 0.02 + j(0.02)) / 1.12, 0.065, 0.45],
+          r: [side * (PITCH - 0.07) + j(0.03), (side > 0 ? 0 : Math.PI) + j(0.06), j(0.05)],
+          c: pick(['#d6a05e', '#cf9554', '#dcab6a', '#c98d4e', '#d9a463'], r),
+        });
+      }
+    }
+    // Madera: base del tejado (oscura, rellena las juntas), tablas de los hastiales, pies derechos y vigas.
+    const wood: Item[] = [];
+    for (const side of [1, -1]) {
+      const [, y, z] = at(side, 0.5, 0);
+      wood.push({ p: [0, y, z], s: [2 * ROOF.half + 0.04, 0.06, SLOPE + 0.12], r: [side * PITCH, 0, 0], c: '#6e4429' });
+      for (const x of [-1, 1]) wood.push({ p: [x * (ROOF.half + 0.03), y, z], s: [0.08, 0.17, SLOPE + 0.1], r: [side * PITCH, 0, 0], c: C.woodDark });
+    }
+    for (const x of [-1, 1]) for (const z of [-1, 1]) wood.push({ p: [x * 1.47, 1.2, z * 1.27], s: [0.16, 2.1, 0.16], c: C.woodDark });
+    for (const z of [-1, 1]) wood.push({ p: [0, 2.2, z * 1.33], s: [3.1, 0.14, 0.12], c: C.woodDark });
+    for (const x of [-1, 1]) wood.push({ p: [x * 1.53, 2.2, 0], s: [0.12, 0.14, 2.7], c: C.woodDark });
+    // ventanas: marco, cruz, alféizar y dintel (en coordenadas de la ventana, z hacia fuera)
+    const glass: V3[] = [];
+    for (const [ox, oz, ry] of [[-0.85, 1.3, 0], [-1.5, 0, -Math.PI / 2]]) {
+      const c = Math.cos(ry), s = Math.sin(ry), w = (lx: number, ly: number, lz: number): V3 => [ox + lx * c + lz * s, 1.35 + ly, oz - lx * s + lz * c];
+      wood.push(
+        { p: w(0, 0, 0), s: [0.78, 0.78, 0.08], r: ry, c: C.woodDark },
+        { p: w(0, 0, 0.07), s: [0.6, 0.05, 0.03], r: ry, c: C.woodDark },
+        { p: w(0, 0, 0.07), s: [0.05, 0.6, 0.03], r: ry, c: C.woodDark },
+        { p: w(0, -0.44, 0.07), s: [0.94, 0.07, 0.2], r: ry, c: C.wood },
+        { p: w(0, 0.44, 0.04), s: [0.9, 0.08, 0.12], r: ry, c: C.wood },
+      );
+      glass.push(w(0, 0, 0.02));
+    }
+    wood.push({ p: [1.05, 1.83, 1.37], s: [0.04, 0.04, 0.16], c: '#4a3a30' }); // brazo del farol
+    wood.push({ p: [-0.8, 4.0, -0.5], s: [0.3, 0.05, 0.3], c: '#3b2f2a' }); // boca de la chimenea
+
+    const door = new THREE.ExtrudeGeometry(arch(new THREE.Shape(), 0.78, 0.98), { depth: 0.08, bevelEnabled: true, bevelThickness: 0.02, bevelSize: 0.02, bevelSegments: 2, curveSegments: 16 });
+    const fs = arch(new THREE.Shape(), 1.0, 0.98);
+    fs.holes.push(arch(new THREE.Path(), 0.78, 0.98));
+    const frame = new THREE.ExtrudeGeometry(fs, { depth: 0.1, bevelEnabled: true, bevelThickness: 0.015, bevelSize: 0.015, bevelSegments: 2, curveSegments: 16 });
+    return { gable, shingles, wood, glass, door, frame };
   }, []);
+
   const smoke = useRef<THREE.Group>(null!);
   useFrame(({ clock }) => {
     smoke.current.children.forEach((m, i) => {
@@ -394,29 +518,37 @@ function House({ glow }: { glow: number }) {
     });
   });
   const win = <meshStandardMaterial color="#ffd27a" emissive="#ffb347" emissiveIntensity={0.25 + glow * 1.8} />;
-  const frame = <meshStandardMaterial color={C.woodDark} roughness={0.85} />;
   return (
     <group position={[HOUSE.x, 0, HOUSE.z]}>
       <RBox args={[3.15, 0.36, 2.75]} radius={0.08} position={[0, 0.18, 0]} material={HOUSE_MAT.base} castShadow receiveShadow />
       <RBox args={[3, 2.1, 2.6]} radius={0.07} position={[0, 1.2, 0]} material={HOUSE_MAT.wall} castShadow receiveShadow />
-      <mesh geometry={roof} position={[0, 2.2, 0]} material={HOUSE_MAT.roof} castShadow receiveShadow />
-      <mesh position={[0, 3.78, 0]} rotation-z={Math.PI / 2} castShadow><capsuleGeometry args={[0.15, 3.45, 4, 12]} /><meshStandardMaterial color="#b27a45" roughness={0.95} /></mesh>
+      <mesh geometry={d.gable} position-y={ROOF.y} material={HOUSE_MAT.gable} castShadow receiveShadow />
+      <Scatter geo={SHINGLE} mat={HOUSE_MAT.shingle} items={d.shingles} shadow={false} />
+      <Scatter geo={BOX} mat={MAT.wood} items={d.wood} />
+      <mesh position={[0, ROOF.y + ROOF.rise + 0.06, 0]} rotation-z={Math.PI / 2} castShadow><capsuleGeometry args={[0.15, 2 * ROOF.half - 0.1, 4, 12]} /><meshStandardMaterial color="#b27a45" roughness={0.95} /></mesh>
       <RBox args={[0.5, 1.4, 0.5]} radius={0.05} position={[-0.8, 3.2, -0.5]} material={HOUSE_MAT.chimney} castShadow />
-      <group ref={smoke} position={[-0.8, 4.0, -0.5]}>
+      <RBox args={[0.66, 0.14, 0.66]} radius={0.04} position={[-0.8, 3.92, -0.5]} material={HOUSE_MAT.chimney} castShadow />
+      <group ref={smoke} position={[-0.8, 4.1, -0.5]}>
         {[0, 1, 2].map(i => <mesh key={i} geometry={SPHERE}><meshStandardMaterial color="#ffffff" transparent depthWrite={false} /></mesh>)}
       </group>
-      {/* puerta, pomo, ventanas (con marco), farol */}
-      <RBox args={[0.8, 1.3, 0.12]} radius={0.06} position={[0.35, 0.95, 1.31]}><meshStandardMaterial color={C.woodDark} /></RBox>
-      <mesh geometry={SPHERE} position={[0.6, 0.95, 1.39]} scale={0.05}><meshStandardMaterial color="#e8c35a" /></mesh>
-      <RBox args={[0.74, 0.74, 0.08]} radius={0.035} position={[-0.85, 1.35, 1.3]}>{frame}</RBox>
-      <RBox args={[0.6, 0.6, 0.08]} radius={0.03} position={[-0.85, 1.35, 1.32]}>{win}</RBox>
-      <RBox args={[0.74, 0.74, 0.08]} radius={0.035} position={[-1.5, 1.35, 0]} rotation-y={Math.PI / 2}>{frame}</RBox>
-      <RBox args={[0.6, 0.6, 0.08]} radius={0.03} position={[-1.52, 1.35, 0]} rotation-y={Math.PI / 2}>{win}</RBox>
-      <RBox args={[0.18, 0.26, 0.18]} radius={0.04} position={[1.05, 1.55, 1.38]}>{win}</RBox>
+      {/* puerta en arco con marco, pomo y escalón */}
+      <group position={[0.35, 0.36, 1.27]}>
+        <mesh geometry={d.door} material={HOUSE_MAT.door} castShadow />
+        <mesh geometry={d.frame} position-z={0.02} material={HOUSE_MAT.frame} castShadow />
+        <mesh geometry={SPHERE} position={[0.25, 0.6, 0.13]} scale={0.045}><meshStandardMaterial color="#e8c35a" metalness={0.4} roughness={0.4} /></mesh>
+      </group>
+      <RBox args={[0.95, 0.2, 0.42]} radius={0.05} position={[0.35, 0.1, 1.57]} material={HOUSE_MAT.base} castShadow receiveShadow />
+      {d.glass.map((p, i) => <RBox key={i} args={[0.6, 0.6, 0.08]} radius={0.03} position={p} rotation-y={i ? -Math.PI / 2 : 0}>{win}</RBox>)}
+      {/* farol colgado junto a la puerta */}
+      <group position={[1.05, 1.6, 1.45]}>
+        <RBox args={[0.17, 0.24, 0.17]} radius={0.04}>{win}</RBox>
+        <mesh position-y={0.18} rotation-y={Math.PI / 4}><coneGeometry args={[0.16, 0.13, 4]} /><meshStandardMaterial color="#4a3a30" /></mesh>
+        <mesh position-y={-0.14} scale={[0.2, 0.04, 0.2]} geometry={BOX}><meshStandardMaterial color="#4a3a30" /></mesh>
+      </group>
       <pointLight position={[0.6, 1.4, 2.0]} color="#ffb357" intensity={glow * 3} distance={5} decay={1.5} />
       {/* hiedra */}
-      <Scatter geo={LEAF} mat={MAT.leaf} items={[[-1.4, 2.0, 1.3, 0.22], [-1.2, 1.7, 1.33, 0.18], [-1.45, 1.5, 1.3, 0.2], [1.3, 2.0, 1.32, 0.2], [1.45, 1.75, 1.2, 0.18], [-0.3, 2.15, 1.33, 0.16]]
-        .map(([x, y, z, s], i) => ({ p: [x, y, z] as V3, s, r: i * 2.1, c: C.leaf[Math.round(s * 10) % 3] }))} />
+      <Scatter geo={IVY} mat={MAT.foliage} items={[[-1.42, 2.0, 1.3, 0.24], [-1.5, 1.68, 1.25, 0.19], [-1.48, 1.35, 1.3, 0.2], [1.33, 2.0, 1.32, 0.22], [1.48, 1.7, 1.2, 0.18], [-0.3, 2.12, 1.33, 0.17]]
+        .map(([x, y, z, s], i) => ({ p: [x, y, z] as V3, s, r: i * 2.1, c: C.leaf[i % 3] }))} />
     </group>
   );
 }
@@ -427,20 +559,23 @@ function Campfire({ glow }: { glow: number }) {
   useFrame(({ clock }) => {
     const t = clock.elapsedTime, f = 1 + Math.sin(t * 13) * 0.08 + Math.sin(t * 7.3) * 0.06;
     flames.current.scale.set(1, f, 1);
+    flames.current.children.forEach((m, i) => { m.rotation.y = t * (0.6 + i * 0.3); });
     light.current.intensity = (0.6 + glow * 4) * f;
   });
-  const stones = Array.from({ length: 9 }, (_, i) => {
+  const stones = useMemo(() => Array.from({ length: 9 }, (_, i) => {
     const a = (i / 9) * Math.PI * 2;
-    return { p: [Math.cos(a) * 0.48, 0.07, Math.sin(a) * 0.48] as V3, s: [0.16, 0.12, 0.14] as V3, r: a * 3 };
-  });
+    return rockItem(Math.cos(a) * 0.48, -0.02, Math.sin(a) * 0.48, 0.14 + (i % 3) * 0.02, 0.12 + (i % 2) * 0.05, i % 4, a * 3, 0.15);
+  }), []);
+  const logs: Item[] = [{ p: [0, 0.1, 0], s: [0.07, 0.62, 0.07], r: [0, 0.5, Math.PI / 2] }, { p: [0, 0.13, 0], s: [0.065, 0.56, 0.065], r: [0, -0.7, Math.PI / 2] }, { p: [0, 0.16, 0], s: [0.06, 0.5, 0.06], r: [0, 1.9, Math.PI / 2] }];
+  const fire = <meshBasicMaterial vertexColors toneMapped={false} />;
   return (
     <group position={[FIRE.x, 0, FIRE.z]}>
-      <Scatter geo={ROCK} mat={MAT.rock} items={stones} color={C.rock} />
-      <mesh position={[0, 0.1, 0]} rotation={[0, 0.5, Math.PI / 2]} scale={[0.07, 0.6, 0.07]} geometry={CYL} castShadow><meshStandardMaterial color={C.woodDark} /></mesh>
-      <mesh position={[0, 0.12, 0]} rotation={[0, -0.7, Math.PI / 2]} scale={[0.07, 0.6, 0.07]} geometry={CYL} castShadow><meshStandardMaterial color={C.trunk} /></mesh>
-      <group ref={flames} position={[0, 0.15, 0]}>
-        <mesh geometry={CONE} position={[0, 0.25, 0]} scale={[0.22, 0.55, 0.22]}><meshBasicMaterial color="#ff8a2b" toneMapped={false} /></mesh>
-        <mesh geometry={CONE} position={[0, 0.2, 0.02]} scale={[0.12, 0.38, 0.12]}><meshBasicMaterial color="#ffd84d" toneMapped={false} /></mesh>
+      <Variants geos={ROCKS_LO} mat={MAT.rock} items={stones} color={C.rock} />
+      <Scatter geo={LOG} mat={MAT.vcol} items={logs} />
+      <group ref={flames} position={[0, 0.12, 0]}>
+        <mesh geometry={FLAME} scale={[0.44, 0.72, 0.44]}>{fire}</mesh>
+        <mesh geometry={FLAME} position={[0.1, 0, 0.05]} rotation-z={-0.25} scale={[0.24, 0.44, 0.24]}>{fire}</mesh>
+        <mesh geometry={FLAME} position={[-0.09, 0, -0.04]} rotation-z={0.3} scale={[0.22, 0.38, 0.22]}>{fire}</mesh>
       </group>
       <pointLight ref={light} position={[0, 0.7, 0]} color="#ff9a3c" distance={7} decay={1.5} />
     </group>
@@ -448,22 +583,43 @@ function Campfire({ glow }: { glow: number }) {
 }
 
 function Bridge() {
-  const { planks, rails } = useMemo(() => {
+  const d = useMemo(() => {
+    const r = rng(9), j = (k: number) => (r() - 0.5) * k;
     const arc = (t: number, y0: number) => new THREE.Vector3(-1.6 + 3.2 * t, y0 + 0.45 * Math.sin(Math.PI * t), 0);
-    const planks = Array.from({ length: 11 }, (_, i) => {
-      const t = (i + 0.5) / 11, p = arc(t, 0.12), slope = Math.atan(0.45 * Math.PI * Math.cos(Math.PI * t) / 3.2);
-      return { p, slope };
+    const slope = (t: number) => Math.atan((0.45 * Math.PI * Math.cos(Math.PI * t)) / 3.2);
+    // tablas sueltas: cada una con su ancho, largo, tono y un pelín torcida; queda una rendija entre ellas
+    const planks: Item[] = Array.from({ length: 13 }, (_, i) => {
+      const t = (i + 0.5) / 13, p = arc(t, 0.12);
+      return { p: [p.x, p.y, j(0.05)], s: [0.2 + j(0.03), 0.07, 1.02 + j(0.08)], r: [j(0.03), j(0.06), slope(t) + j(0.03)], c: pick(WOODS, r) };
     });
-    const rails = [-0.5, 0.5].map(z => new THREE.TubeGeometry(new THREE.CatmullRomCurve3(Array.from({ length: 9 }, (_, i) => arc(i / 8, 0.6).setZ(z))), 24, 0.04, 6));
-    return { planks, rails };
+    // largueros curvos bajo los extremos de las tablas, en tramos rectos
+    const beams: Item[] = [];
+    for (const z of [-0.43, 0.43]) for (let k = 0; k < 10; k++) {
+      const a = arc(k / 10, 0.02), b = arc((k + 1) / 10, 0.02);
+      beams.push({ p: [(a.x + b.x) / 2, (a.y + b.y) / 2, z], s: [a.distanceTo(b) + 0.05, 0.13, 0.08], r: [0, 0, Math.atan2(b.y - a.y, b.x - a.x)] });
+    }
+    // postes (extremos y centro) y balaustres hasta el pasamanos
+    const posts: Item[] = [], bars: Item[] = [];
+    for (const z of [-0.5, 0.5]) {
+      for (const t of [0.02, 0.5, 0.98]) {
+        const base = t === 0.5 ? arc(t, 0.1).y : -0.12, top = arc(t, 0.6).y + 0.03;
+        posts.push({ p: [arc(t, 0).x, base, z], s: [1, top - base, 1], c: C.woodDark });
+      }
+      for (const t of [0.14, 0.26, 0.38, 0.62, 0.74, 0.86]) bars.push({ p: [arc(t, 0).x, arc(t, 0.36).y, z], s: [0.035, 0.48, 0.035], c: pick(WOODS, r) });
+    }
+    const rails = [-0.5, 0.5].map(z => new THREE.TubeGeometry(new THREE.CatmullRomCurve3(Array.from({ length: 9 }, (_, i) => arc(i / 8, 0.6).setZ(z))), 32, 0.045, 8));
+    // piedras planas donde apoya en cada orilla
+    const stones = [-1, 1].flatMap(sx => [-1, 1].map(sz => rockItem(sx * 1.72, -0.04, sz * 0.42, 0.22, 0.14, 1, sx * 2 + sz, 0.05)));
+    return { planks, beams, posts, bars, rails, stones };
   }, []);
   return (
     <group position={[5.55, 0, 3.15]} rotation-y={-1.2}>
-      {planks.map(({ p, slope }, i) => (
-        <mesh key={i} geometry={BOX} position={p} rotation-z={slope} scale={[0.27, 0.08, 1.05]} castShadow receiveShadow><meshStandardMaterial color={i % 2 ? C.wood : '#b57a4a'} /></mesh>
-      ))}
-      {rails.map((g, i) => <mesh key={i} geometry={g} castShadow><meshStandardMaterial color={C.woodDark} /></mesh>)}
-      <Scatter geo={BOX} color={C.woodDark} items={[-1.55, 1.55].flatMap(x => [-0.5, 0.5].map(z => ({ p: [x, 0.25, z] as V3, s: [0.1, 0.9, 0.1] as V3 })))} />
+      <Scatter geo={BOX} mat={MAT.wood} items={d.planks} />
+      <Scatter geo={BOX} mat={MAT.wood} items={d.beams} color={C.woodDark} />
+      <Scatter geo={POST} mat={MAT.wood} items={d.posts} />
+      <Scatter geo={BOX} mat={MAT.wood} items={d.bars} />
+      {d.rails.map((g, i) => <mesh key={i} geometry={g} castShadow><meshStandardMaterial color={C.woodDark} roughness={0.85} /></mesh>)}
+      <Variants geos={ROCKS_LO} mat={MAT.rock} items={d.stones} color={C.rock} shadow={false} />
     </group>
   );
 }
@@ -504,7 +660,7 @@ function Picnic() {
   }, []);
   return (
     <group position={[3.4, 0, -3.3]} rotation-y={0.15}>
-      <mesh position={[0, 0.025, 0]} receiveShadow><boxGeometry args={[2.0, 0.05, 1.5]} /><meshStandardMaterial map={tex} /></mesh>
+      <RBox args={[2.0, 0.04, 1.5]} radius={0.018} position={[0, 0.02, 0]} receiveShadow><meshStandardMaterial map={tex} /></RBox>
       {([[-0.6, -0.35, '#f4a6c0'], [0.2, -0.5, '#b9a2e8'], [0.65, 0.15, '#f7b58a']] as const).map(([x, z, c], i) => (
         <RBox key={i} args={[0.55, 0.18, 0.45]} radius={0.08} position={[x, 0.14, z]} rotation-y={i * 0.4} castShadow><meshStandardMaterial color={c} /></RBox>
       ))}
@@ -512,11 +668,26 @@ function Picnic() {
   );
 }
 
+// Banco de listones: asiento y respaldo inclinado sobre dos laterales con brazos.
 function Bench() {
+  const d = useMemo(() => {
+    const backZ = (y: number) => -0.25 - (y - 0.47) * 0.15 + 0.065; // delante de la pata trasera, que va inclinada
+    const slats: Item[] = [
+      ...[-0.16, 0, 0.16].map((z, i): Item => ({ p: [0, 0.46, z], s: [1.4, 0.055, 0.13], c: WOODS[i] })),
+      ...[0.66, 0.84].map((y, i): Item => ({ p: [0, y, backZ(y)], s: [1.4, 0.12, 0.05], r: [-0.15, 0, 0], c: WOODS[i + 2] })),
+    ];
+    const frame: Item[] = [-0.62, 0.62].flatMap((x): Item[] => [
+      { p: [x, 0.3, 0.17], s: [0.08, 0.6, 0.08] }, // pata delantera, sube hasta el brazo
+      { p: [x, 0.47, -0.25], s: [0.08, 0.94, 0.08], r: [-0.15, 0, 0] }, // pata trasera y respaldo
+      { p: [x, 0.41, -0.03], s: [0.07, 0.06, 0.48] }, // travesaño bajo el asiento
+      { p: [x, 0.63, -0.03], s: [0.1, 0.05, 0.52] }, // brazo
+    ]);
+    return { slats, frame };
+  }, []);
   return (
     <group position={[8.0, 0, -2.6]} rotation-y={0.35}>
-      <Scatter geo={BOX} color={C.wood} items={[{ p: [0, 0.45, 0], s: [1.4, 0.1, 0.45] }, { p: [0, 0.78, -0.2], s: [1.4, 0.38, 0.08] }]} />
-      <Scatter geo={BOX} color={C.woodDark} items={[-0.6, 0.6].flatMap(x => [-0.15, 0.15].map(z => ({ p: [x, 0.22, z] as V3, s: [0.09, 0.44, 0.09] as V3 })))} />
+      <Scatter geo={BOX} mat={MAT.wood} items={d.slats} />
+      <Scatter geo={BOX} mat={MAT.wood} items={d.frame} color={C.woodDark} />
     </group>
   );
 }
@@ -544,13 +715,22 @@ function PetCorner() {
 
 function Dock({ glow }: { glow: number }) {
   const a = 0.87, [x, z] = edgeAt(a), dir = Math.atan2(Math.cos(a) / RX, Math.sin(a) / RZ);
-  const planks = Array.from({ length: 8 }, (_, i) => ({ p: [0, -0.32, -0.1 + i * 0.32] as V3, s: [1.1, 0.08, 0.27] as V3, c: i % 2 ? C.wood : '#b57a4a' }));
-  const posts = [-0.5, 0.5].flatMap(px => [0.3, 2.1].map(pz => ({ p: [px, -0.8, pz] as V3, s: [0.09, 1.2, 0.09] as V3 })));
+  const d = useMemo(() => {
+    const r = rng(13), j = (k: number) => (r() - 0.5) * k;
+    const planks: Item[] = Array.from({ length: 8 }, (_, i) => ({ p: [j(0.05), -0.32, -0.1 + i * 0.32], s: [1.1 + j(0.08), 0.07, 0.27 + j(0.03)], r: [j(0.02), j(0.05), j(0.02)], c: pick(WOODS, r) }));
+    const beams: Item[] = [-0.42, 0.42].map(bx => ({ p: [bx, -0.41, 1.0], s: [0.09, 0.12, 2.5] }));
+    const posts: Item[] = [-0.52, 0.52].flatMap(px => [0.3, 2.1].map((pz): Item => ({ p: [px, -1.6, pz], s: [1.1, pz > 1 ? 1.75 : 1.4, 1.1] })));
+    return { planks, beams, posts };
+  }, []);
   return (
     <group position={[x, 0, z]} rotation-y={dir}>
-      <Scatter geo={BOX} items={planks} />
-      <Scatter geo={CYL} items={posts} color={C.woodDark} />
-      <RBox args={[0.16, 0.22, 0.16]} radius={0.03} position={[0.5, -0.05, 2.1]}><meshStandardMaterial color="#ffd27a" emissive="#ffb347" emissiveIntensity={0.3 + glow * 2} /></RBox>
+      <Scatter geo={BOX} mat={MAT.wood} items={d.planks} />
+      <Scatter geo={BOX} mat={MAT.wood} items={d.beams} color={C.woodDark} />
+      <Scatter geo={POST} mat={MAT.wood} items={d.posts} color={C.woodDark} />
+      <group position={[0.52, 0.33, 2.1]}>
+        <RBox args={[0.16, 0.22, 0.16]} radius={0.03}><meshStandardMaterial color="#ffd27a" emissive="#ffb347" emissiveIntensity={0.3 + glow * 2} /></RBox>
+        <mesh position-y={0.17} rotation-y={Math.PI / 4}><coneGeometry args={[0.15, 0.12, 4]} /><meshStandardMaterial color="#4a3a30" /></mesh>
+      </group>
     </group>
   );
 }
@@ -560,47 +740,84 @@ function Dock({ glow }: { glow: number }) {
 export default function Island({ waterColor, sky, glow }: { waterColor: string; sky: string; glow: number }) {
   const d = useMemo(() => {
     const r = rng(7);
+    // pasaderas hacia la casa: losas irregulares
     const stones: Item[] = Array.from({ length: 8 }, (_, i) => {
       const t = i / 7, x = -0.9 + (-4.4) * t, z = 0.4 + (-1.4) * t;
-      return { p: [x + (i % 2 ? 0.18 : -0.18) * 0.5, 0.03, z + (i % 2 ? 0.2 : -0.2)], s: [0.32 + r() * 0.1, 0.05, 0.24 + r() * 0.08] };
+      return { p: [x + (i % 2 ? 0.09 : -0.09), -0.01, z + (i % 2 ? 0.2 : -0.2)], s: [0.32 + r() * 0.1, 0.06, 0.24 + r() * 0.08], r: r() * 6, v: i };
     });
+    const pebbles = pathEdges(37, 0.55, 0.35, [0.98, 1.15]).map(([x, z], i) => rockItem(x, -0.02, z, 0.06 + r() * 0.05, 0.05 + r() * 0.04, i % 4, i * 1.9, 0.1));
 
-    const trunks: Item[] = TREES.map(([x, z, s]) => ({ p: [x, s, z], s: [0.24 * s, 2 * s, 0.24 * s] }));
-    const canopy: Item[] = TREES.flatMap(([x, z, s], i) => {
-      const a = i * 1.7, ca = Math.cos(a), sa = Math.sin(a);
-      return CANOPY.map(([ox, oy, oz, os], j): Item => ({ p: [x + (ox * ca - oz * sa) * s, oy * s, z + (ox * sa + oz * ca) * s], s: [os * s, os * s * 0.92, os * s], r: i * 1.3 + j * 2.4, c: C.leaf[(i + j) % 3] }));
-    });
+    const trees: Item[] = TREES.map(([x, z, s], i) => ({ p: [x, 0, z], s, r: i * 1.7, v: i % 3, c: C.leaf[i % 3] }));
+    const trunks = trees.map(t => ({ ...t, c: undefined }));
 
-    const bushes: Item[] = [], bushFlowers: Item[] = [];
+    // arbustos y sus flores, repartidas por la superficie de las matas mirando hacia fuera
+    const bushes: Item[] = [], blossoms: Item[] = [];
     BUSHES.forEach(([x, z, s, flowers], i) => {
-      ([[0, 0.35, 0, 0.5], [0.38, 0.28, 0.1, 0.38], [-0.35, 0.27, -0.05, 0.4]] as const).forEach(([ox, oy, oz, os], j) =>
-        bushes.push({ p: [x + ox * s, oy * s, z + oz * s], s: os * s, r: i * 2.7 + j, c: j === 1 ? C.leaf[i % 3] : C.bush }));
-      if (flowers) for (let k = 0; k < 6; k++) {
-        const a = k * 1.1 + i, h = 0.25 + (k % 3) * 0.12;
-        bushFlowers.push({ p: [x + Math.cos(a) * 0.42 * s, h * s + 0.15, z + Math.sin(a) * 0.42 * s + 0.08], s: 0.06, c: k % 2 ? '#ff9fc4' : '#ffffff' });
+      const v = i % 3, ry = i * 2.7;
+      bushes.push({ p: [x, 0, z], s, r: ry, v, c: [C.bush, C.leaf[0], C.leaf[2]][i % 3] });
+      if (!flowers) return;
+      const { clumps } = BUSH_KINDS[v], rot = new THREE.Quaternion().setFromAxisAngle(Y, ry), q = new THREE.Quaternion(), e = new THREE.Euler();
+      for (let k = 0; k < 7; k++) {
+        const cl = clumps[k % clumps.length], a = k * 2.4 + i, dir = new THREE.Vector3(Math.cos(a) * 0.75, 0.55 + 0.2 * (k % 3), Math.sin(a) * 0.75).normalize();
+        const p = new THREE.Vector3(...cl.c).addScaledVector(dir, cl.r * 0.97).applyQuaternion(rot).multiplyScalar(s);
+        e.setFromQuaternion(q.setFromUnitVectors(Y, dir).premultiply(rot));
+        blossoms.push({ p: [x + p.x, p.y, z + p.z], s: 0.055, r: [e.x, e.y, e.z], c: k % 2 ? '#ff9fc4' : '#ffffff' });
       }
     });
 
-    const rocks: Item[] = [...SHORE_ROCKS, ...([[-7.2, 4.4, 0.5], [-7.9, 3.9, 0.35], [1.2, 5.7, 0.45], [1.9, 5.4, 0.3], [-4.2, -4.7, 0.3]] as const).map(([x, z, s]) => ({ p: [x, s * 0.4, z] as V3, s: [s, s * 0.75, s * 0.85] as V3 }))];
+    const rocks: Item[] = [...SHORE_ROCKS, ...FIELD_ROCKS.map(([x, z, hw, h, v], i) => rockItem(x, -0.04, z, hw, h, v, i * 2.3, 0.06))];
 
+    // flores en corros de 3-6 del mismo color (alguna blanca suelta), no confeti por todo el césped
     const flowerColors = ['#ffe066', '#ffffff', '#ff9fc4', '#c9a3ff', '#ffb36b'];
-    const flowers = scatterFree(11, 150, (x, z, rr) => ({ p: [x, 0.09, z], s: 0.065 + rr() * 0.03, c: flowerColors[Math.floor(rr() * flowerColors.length)] }));
-    const tufts = scatterFree(23, 170, (x, z, rr) => ({ p: [x, 0.11, z], s: [0.05, 0.22 + rr() * 0.12, 0.05], c: rr() > 0.5 ? '#78b84a' : '#6aa843' }));
+    const flowers = scatterFree(11, 110, (x, z, rr) => {
+      const c = pick(flowerColors, rr), n = 3 + Math.floor(rr() * 4), out: Item[] = [];
+      for (let k = 0; k < n; k++) {
+        const a = rr() * 6.28, dd = 0.06 + rr() * 0.3, px = x + Math.cos(a) * dd, pz = z + Math.sin(a) * dd, s = 0.06 + rr() * 0.035;
+        if (isFree(px, pz)) out.push({ p: [px, 1.4 * s, pz], s, r: [(rr() - 0.5) * 0.3, rr() * 6.28, (rr() - 0.5) * 0.3], c: rr() < 0.85 ? c : '#ffffff' });
+      }
+      return out;
+    });
 
-    // nenúfares y flores flotando sobre el agua del estanque (hundida a POND_Y)
-    const lilies: Item[] = ([[3.0, 3.0], [4.6, 3.9], [3.6, 4.2], [6.9, 2.7], [2.6, 3.8]] as const).map(([x, z], i) => ({ p: [x, POND_Y + 0.012, z], s: [0.26 - i * 0.02, 0.015, 0.26 - i * 0.02], c: '#5a9e3a' }));
-    const lotus: Item[] = [{ p: [4.6, POND_Y + 0.055, 3.9], s: 0.08, c: '#ff9fc4' }, { p: [3.0, POND_Y + 0.055, 3.0], s: 0.07, c: '#ffffff' }];
-    const reedSpots = [[2.0, 4.3], [2.2, 4.6], [1.8, 4.0], [7.7, 3.4], [7.9, 3.1], [5.2, 4.6]];
-    const reeds: Item[] = reedSpots.map(([x, z], i) => ({ p: [x, 0.35, z], s: [0.03, 0.9 + (i % 3) * 0.15, 0.03] })); // pie dentro de la orilla
-    const reedTops: Item[] = reedSpots.map(([x, z], i) => ({ p: [x, 0.85 + (i % 3) * 0.075, z], s: [0.06, 0.16, 0.06] }));
+    // hierba: manojos en grupitos con claros entre medias, y por los bordes de los caminos
+    const tuft = (x: number, z: number, rr: () => number): Item => ({ p: [x, -0.01, z], s: 0.5 + rr() * 0.35, r: rr() * 6.28, v: Math.floor(rr() * 3), c: pick(GRASS_TONES, rr) });
+    const tufts = [
+      ...scatterFree(23, 140, (x, z, rr) => {
+        const out: Item[] = [], n = 1 + Math.floor(rr() * 4);
+        for (let k = 0; k < n; k++) {
+          const a = rr() * 6.28, dd = rr() * 0.3, px = x + Math.cos(a) * dd, pz = z + Math.sin(a) * dd;
+          if (isFree(px, pz) && offNav(px, pz)) out.push(tuft(px, pz, rr));
+        }
+        return out;
+      }),
+      ...pathEdges(31, 0.42, 0.5, [0.92, 1.12]).filter(([x, z]) => offNav(x, z)).map(([x, z]) => tuft(x, z, r)),
+      ...FIELD_ROCKS.flatMap(([x, z, hw], i) => [0, 1].map(k => tuft(x + Math.cos(i + k * 2.5) * hw * 1.05, z + Math.sin(i + k * 2.5) * hw * 0.9, r))),
+      // alrededor del estanque, sin tapar los extremos del puente
+      ...pondOutline(POND_GROW + 0.22, 60).filter(p => r() < 0.4 && offNav(p.x, -p.y) && [[6.13, 4.64], [4.97, 1.66]].every(([bx, bz]) => Math.hypot(p.x - bx, -p.y - bz) > 0.8))
+        .map(p => tuft(p.x, -p.y, r)),
+    ];
 
-    const gardenFence = fence([[-8.9, 2.95], [-5.85, 2.95], [-5.85, 0.35]]);
-    const pathFence = fence([[-1.5, 6.1], [-0.4, 6.4]]);
+    // estanque: nenúfares con muesca, lotos encima y eneas en la orilla (pie a la altura del agua)
+    const lilies: Item[] = ([[3.0, 3.0], [4.6, 3.9], [3.6, 4.2], [6.9, 2.7], [2.6, 3.8]] as const).map(([x, z], i) => ({ p: [x, POND_Y + 0.004, z], s: 0.27 - i * 0.02, r: i * 2.1 + 0.5, c: ['#5a9e3a', '#68ab44', '#4f9134'][i % 3] }));
+    const lotus: Item[] = [{ p: [4.6, POND_Y + 0.035, 3.9], s: 0.085, r: 0.3, c: '#ff9fc4' }, { p: [3.0, POND_Y + 0.035, 3.0], s: 0.075, r: 1.1, c: '#ffffff' }];
+    const reeds: Item[] = [[2.0, 4.3], [2.2, 4.6], [1.8, 4.0], [7.7, 3.4], [7.9, 3.1], [5.2, 4.6]].map(([x, z], i) => ({ p: [x, POND_Y, z], s: 0.85 + (i % 3) * 0.15, r: i * 2.2 }));
+
+    const gardenFence = fence([[-8.9, 2.95], [-5.85, 2.95], [-5.85, 0.35]], 3);
+    const pathFence = fence([[-1.5, 6.1], [-0.4, 6.4]], 4);
+    // huerto: tierra con caballones, borde de tablas y brotes en hilera
+    const mounds: Item[] = [0, 1, 2].map(row => ({ p: [-7.4, 0.06, 0.95 + row * 0.6], s: [0.46, 0.22, 0.5], c: '#8f5f3d' }));
+    const bedBoards: Item[] = [
+      { p: [-7.4, 0.07, 0.6], s: [2.68, 0.14, 0.08] }, { p: [-7.4, 0.07, 2.6], s: [2.68, 0.14, 0.08] },
+      { p: [-8.7, 0.07, 1.6], s: [0.08, 0.14, 2.0] }, { p: [-6.1, 0.07, 1.6], s: [0.08, 0.14, 2.0] },
+    ];
     const sprouts: Item[] = [];
-    for (let row = 0; row < 3; row++) for (let k = 0; k < 5; k++) sprouts.push({ p: [-8.4 + k * 0.5, 0.3, 0.9 + row * 0.6], s: [0.1, 0.24, 0.1], c: k % 2 ? '#5fa83a' : '#7cc24e' });
+    for (let row = 0; row < 3; row++) for (let k = 0; k < 5; k++) sprouts.push({ p: [-8.4 + k * 0.5 + (r() - 0.5) * 0.08, 0.15, 0.95 + row * 0.6], s: 0.85 + r() * 0.35, r: r() * 6.28, c: k % 2 ? '#5fa83a' : '#7cc24e' });
 
-    return { stones, trunks, canopy, bushes, bushFlowers, rocks, flowers, tufts, lilies, lotus, reeds, reedTops,
-      posts: [...gardenFence.posts, ...pathFence.posts], rails: [...gardenFence.rails, ...pathFence.rails], sprouts };
+    const white = (l: Item[]) => l.map(it => ({ ...it, c: undefined })); // botones y tallos: su propio color por vértice
+    return {
+      stones, pebbles, trees, trunks, bushes, blossoms, blossomCores: white(blossoms), rocks, flowers, flowerCores: white(flowers), tufts,
+      lilies, lotus, lotusCores: lotus.map(l => ({ ...l, p: [l.p[0], l.p[1] + 0.01, l.p[2]] as V3, s: 0.05, c: undefined })), reeds,
+      posts: [...gardenFence.posts, ...pathFence.posts], rails: [...gardenFence.rails, ...pathFence.rails], mounds, bedBoards, sprouts,
+    };
   }, []);
 
   return (
@@ -608,23 +825,28 @@ export default function Island({ waterColor, sky, glow }: { waterColor: string; 
       <Water color={waterColor} sky={sky} />
       <Ground />
       <PathRibbons />
-      <Scatter geo={ROCK} mat={MAT.rock} items={d.stones} color={C.stone} shadow={false} />
-      <Scatter geo={TRUNK} items={d.trunks} color={C.trunk} />
-      <Scatter geo={LEAF} mat={MAT.leaf} items={d.canopy} />
-      <Scatter geo={LEAF} mat={MAT.leaf} items={d.bushes} />
-      <Scatter geo={SPHERE} items={d.bushFlowers} shadow={false} />
-      <Scatter geo={ROCK} mat={MAT.rock} items={d.rocks} color={C.rock} />
-      <Scatter geo={SPHERE} items={d.flowers} shadow={false} />
-      <Scatter geo={CONE} items={d.tufts} shadow={false} />
-      <Scatter geo={CYL} items={d.lilies} shadow={false} />
-      <Scatter geo={SPHERE} items={d.lotus} shadow={false} />
-      <Scatter geo={CYL} items={d.reeds} color="#6aa843" />
-      <Scatter geo={SPHERE} items={d.reedTops} color="#8a5a3b" />
-      <Scatter geo={BOX} items={d.posts} color={C.woodDark} />
-      <Scatter geo={BOX} items={d.rails} color={C.wood} />
+      <Variants geos={FLAGS} mat={MAT.rock} items={d.stones} color={C.stone} shadow={false} />
+      <Variants geos={ROCKS_LO} mat={MAT.rock} items={d.pebbles} color={C.stone} shadow={false} />
+      <Variants geos={TRUNKS} mat={MAT.bark} items={d.trunks} color={C.trunk} />
+      <Variants geos={CANOPIES} mat={MAT.foliage} items={d.trees} />
+      <Variants geos={BUSH_GEOS} mat={MAT.foliage} items={d.bushes} />
+      <Scatter geo={FLOWER} mat={MAT.vcol} items={d.blossoms} shadow={false} />
+      <Scatter geo={BLOSSOM_CORE} mat={MAT.vcol} items={d.blossomCores} shadow={false} />
+      <Variants geos={ROCKS} mat={MAT.rock} items={d.rocks} color={C.rock} />
+      <Scatter geo={FLOWER} mat={MAT.vcol} items={d.flowers} shadow={false} />
+      <Scatter geo={FLOWER_CORE} mat={MAT.vcol} items={d.flowerCores} shadow={false} />
+      <Variants geos={TUFTS} mat={MAT.vcol} items={d.tufts} shadow={false} />
+      <Scatter geo={LILY_PAD} mat={MAT.vcol} items={d.lilies} shadow={false} />
+      <Scatter geo={LOTUS} mat={MAT.vcol} items={d.lotus} shadow={false} />
+      <Scatter geo={BLOSSOM_CORE} mat={MAT.vcol} items={d.lotusCores} shadow={false} />
+      <Scatter geo={CATTAIL} mat={MAT.vcol} items={d.reeds} />
+      <Scatter geo={FENCE_POST} mat={MAT.wood} items={d.posts} />
+      <Scatter geo={BOX} mat={MAT.wood} items={d.rails} />
       {/* huerto */}
-      <Scatter geo={BOX} items={[{ p: [-7.4, 0.08, 1.6], s: [2.6, 0.16, 2.0] }]} color="#8a5a3a" shadow={false} />
-      <Scatter geo={CONE} items={d.sprouts} />
+      <Scatter geo={BOX} items={[{ p: [-7.4, 0.02, 1.6], s: [2.6, 0.1, 2.0] }]} color="#7d5234" shadow={false} />
+      <Scatter geo={MOUND} items={d.mounds} shadow={false} />
+      <Scatter geo={BOX} mat={MAT.wood} items={d.bedBoards} color={C.woodDark} />
+      <Scatter geo={SPROUT} mat={MAT.vcol} items={d.sprouts} />
       <House glow={glow} />
       <Campfire glow={glow} />
       <Bridge />
