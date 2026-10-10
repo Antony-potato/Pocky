@@ -6,7 +6,7 @@ Una mascota virtual compartida entre dos personas, construida con Next.js PWA + 
 
 ## ✨ Características
 
-- 🐰 Mascota con ASCII art animado (conejo, gato, perro, hámster)
+- 🐱 Pocky en 3D (Three.js) paseando por su isla: va solo al cuenco, al estanque, a jugar o a su cama según lo que le pidáis
 - 💾 Sincronización en tiempo real entre dos teléfonos (Firebase)
 - 📱 PWA — se instala en iPhone desde Safari sin App Store
 - 📦 APK — se instala en Android sin Google Play
@@ -40,16 +40,18 @@ pocky-next/
 │   │           └── tick/
 │   │               └── route.ts   ← endpoint de degradación (Vercel lo llama cada hora)
 │   ├── components/
-│   │   ├── PetScreen.tsx           ← pantalla principal
-│   │   ├── PetAvatar.tsx           ← ASCII art animado
-│   │   ├── PetStats.tsx            ← barras de estado
-│   │   └── ActionPad.tsx           ← botones de cuidado
+│   │   ├── PetScreen.tsx           ← pantalla principal (HUD + acciones sobre la escena 3D)
+│   │   └── scene/
+│   │       ├── World.tsx           ← Canvas, cámara que sigue a Pocky, luces según la hora
+│   │       ├── Island.tsx          ← isla generada por código (casa, árboles, estanque...)
+│   │       ├── Pocky.tsx           ← gato hecho de piezas + animaciones + a dónde va
+│   │       └── nav.ts              ← puntos de paso por los que camina
 │   ├── store/
 │   │   └── petStore.ts             ← estado global + sync Firebase
 │   ├── lib/
 │   │   ├── firebase.ts             ← cliente Firebase
 │   │   ├── petLogic.ts             ← lógica pura (compartida con cron)
-│   │   └── sprites.ts              ← ASCII art y mensajes
+│   │   └── timeBackground.ts       ← iluminación según la hora
 │   └── types/
 │       └── pet.ts                  ← tipos TypeScript
 ├── public/
@@ -240,17 +242,13 @@ export const DEFAULT_PET: PetData = {
 }
 ```
 
-### Cambiar ASCII art
+### Cambiar la isla o a Pocky
 
-Edita `src/lib/sprites.ts` — cada sprite es un string con `\n` entre líneas:
+Todo es geometría generada por código, sin modelos externos:
 
-```ts
-bunny: {
-  idle: "(\\ /)\n( ._. )\nc( )( )",   // ← cambia esto
-  happy: "(\\ /)\n( ^u^ )\nc( )( )",
-  ...
-}
-```
+- **Isla**: `src/components/scene/Island.tsx` — listas de posiciones (`TREES`, `BUSHES`, `PONDS`, `PATHS`...) y una función por pieza (`House`, `Campfire`, `Bridge`...).
+- **Pocky**: `src/components/scene/Pocky.tsx` — colores en `FUR`/`LINE`/`PINK`, piezas en el JSX y poses en el `useFrame`.
+- **Por dónde camina**: `src/components/scene/nav.ts` — si mueves algo de la isla, ajusta los nodos y comprueba con `npm run check`.
 
 ### Cambiar velocidad de degradación
 

@@ -1,4 +1,4 @@
-import { PetData, PetMood, PetNeed } from '@/types/pet';
+import type { PetData, PetMood, PetNeed } from '@/types/pet';
 
 export function clamp(v: number, min = 0, max = 100) {
   return Math.max(min, Math.min(max, v));
@@ -48,13 +48,15 @@ export function applyTick(s: PetData, now = Date.now()): Partial<PetData> {
     ? clamp(health - mins * 0.5)
     : clamp(health + mins * 0.1);
 
-  const next = { ...s, hunger, happiness, cleanliness, energy, health, lastUpdated: now };
+  const isAsleep = s.isAsleep && energy < 95;
+  const next = { ...s, hunger, happiness, cleanliness, energy, health, isAsleep };
   return {
-    hunger, happiness, cleanliness, energy, health,
+    hunger, happiness, cleanliness, energy, health, isAsleep,
     lastUpdated: now,
-    isAsleep: energy >= 95 ? false : s.isAsleep,
-    activity: energy >= 95 ? 'idle' : s.activity,
-    mood: getMood(next as PetData),
+    // Las acciones duran segundos y aquí ha pasado >=1 min: cualquier actividad que no sea dormir está caducada
+    // (p. ej. si se cerró la app antes del setTimeout que la devuelve a 'idle').
+    activity: isAsleep ? 'sleeping' : 'idle',
+    mood: getMood(next),
   };
 }
 

@@ -1,7 +1,7 @@
 'use client';
 import { create } from 'zustand';
 import { db } from '@/lib/firebase';
-import { doc, setDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, onSnapshot, serverTimestamp, arrayUnion } from 'firebase/firestore';
 import { PetData, PetActivity, PetMood, PetNeed } from '@/types/pet';
 import { clamp, getMood, getNeeds, applyTick, DEFAULT_PET } from '@/lib/petLogic';
 
@@ -58,31 +58,16 @@ export const usePetStore = create<PetStore>((set, get) => ({
     }
   },
 
+  // arrayUnion: no depende de que haya llegado el snapshot, así no se pisan los tokens del otro dispositivo.
   registerFCMToken: async (token: string) => {
     try {
-      const currentState = get();
-      const currentTokens = currentState.fcmTokens || [];
-      if (!currentTokens.includes(token)) {
-        const newTokens = [...currentTokens, token];
-        set({ fcmTokens: newTokens });
-        await setDoc(doc(db, PET_DOC), { fcmTokens: newTokens }, { merge: true });
-      }
+      await setDoc(doc(db, PET_DOC), { fcmTokens: arrayUnion(token) }, { merge: true });
     } catch (e) { console.error('Token sync error:', e); }
   },
 
   registerWebPushSubscription: async (sub: object) => {
     try {
-      const currentState = get();
-      const currentSubs = (currentState.webPushSubscriptions || []) as PushSubscriptionJSON[];
-      const subJSON = sub as PushSubscriptionJSON;
-      const alreadyExists = currentSubs.some(
-        (s: PushSubscriptionJSON) => s.endpoint === subJSON.endpoint
-      );
-      if (!alreadyExists) {
-        const newSubs = [...currentSubs, subJSON];
-        set({ webPushSubscriptions: newSubs });
-        await setDoc(doc(db, PET_DOC), { webPushSubscriptions: newSubs }, { merge: true });
-      }
+      await setDoc(doc(db, PET_DOC), { webPushSubscriptions: arrayUnion(sub) }, { merge: true });
     } catch (e) { console.error('WebPush sub sync error:', e); }
   },
 
@@ -100,6 +85,7 @@ export const usePetStore = create<PetStore>((set, get) => ({
         needs: getNeeds(data),
         isConnected: true,
       });
+      get().tick(); // stats al día nada más abrir (solo local, no escribe en BD)
 
     }, () => set({ isConnected: false }));
 

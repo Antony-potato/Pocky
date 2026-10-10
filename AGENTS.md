@@ -7,19 +7,20 @@
 ## 📁 Project Overview and Context
 - **Project Name:** Pocky — Mascota Virtual para Dos
 - **Description:** A shared virtual pet application between two people, featuring real-time state sync, 24/7 autonomous stat degradation via Cron, and dual-transport push notifications (FCM & Web Push).
-- **Tech Stack:** Next.js (App Router), Firebase Firestore (Real-time DB), Firebase Cloud Messaging (Android/Chrome), Web Push API (Safari/iOS), Zustand (State Management), Lucide React (Icons), Tailwind CSS v3/v4.
+- **Tech Stack:** Next.js (App Router), Three.js via @react-three/fiber + drei (3D scene), Firebase Firestore (Real-time DB), Firebase Cloud Messaging (Android/Chrome), Web Push API (Safari/iOS), Zustand (State Management), Lucide React (Icons), Tailwind CSS v3/v4.
 - **Platform:** Mobile-first PWA intended to be installed on home screens.
 
 ## 🛠️ Setup and Development Commands
 - **Install:** `npm install`
 - **Dev:** `npm run dev`
 - **Build:** `npm run build`
+- **Checks:** `npm run check` (asserts for nav graph + applyTick; plain Node, no test framework)
 - **Cron (Manual Trigger):** Headers `{ "Authorization": "Bearer CRON_SECRET" }` to `GET /api/cron/tick`.
 
 ## 🎨 Coding Standards and Style Guidelines
 1. **Iconography:** Strictly use `lucide-react`. Use contextual colors for icons (e.g., `Bone` = orange-500, `Heart` = red-400, `Droplets` = sky-400).
 2. **UI/UX Consistency:** 
-   - **Mascota Area:** One large centered mascot without a container box, using drop-shadows and CSS animations (`animate-float`, `animate-bounce-soft`).
+   - **Mascota Area:** Full-screen 3D island (`src/components/scene/`) behind the HUD. Everything is procedural geometry (no GLB files). Pocky is built from primitives and animated per-part in `useFrame`, with a toon material and an inverted-hull outline. The HUD overlay is `pointer-events-none` (except buttons) so touches reach the canvas (drag to rotate, pinch to zoom).
    - **HUD:** Compact floating stats with glassmorphism (`bg-white/70 backdrop-blur-md`).
    - **Actions:** Bottom sheet panel with rounded top corners (`rounded-t-[2rem]`).
 3. **Native Feel:** 
@@ -43,7 +44,10 @@
 - `src/lib/petLogic.ts`: Pure functions for pet stats, moods, and aging.
 - `src/store/petStore.ts`: Global state and Firestore real-time listener.
 - `src/components/PetScreen.tsx`: Main UI (HUD, Alerts, Actions).
-- `src/components/PetAvatar.tsx`: Mascot renderer (Handle Lottie/Images/ASCII).
+- `src/components/scene/World.tsx`: Canvas (client-only via `next/dynamic`), ortho camera following Pocky, lights from `getTimePhase(hour)`.
+- `src/components/scene/Island.tsx`: Procedural island; instanced meshes (`Scatter`) to keep draw calls low on mobile.
+- `src/components/scene/Pocky.tsx`: Procedural cat + behaviour (store `activity`/`isAsleep` → walk to a POI → pose). Speech bubble is a plain DOM node projected each frame (drei `Html` breaks under React 19 StrictMode).
+- `src/components/scene/nav.ts`: Waypoint graph + Dijkstra; POIs per action (bowl, pond, play, bed).
 - `public/sw-push.js`: Native service worker for Safari push events.
 
 ## ⚠️ Boundaries and Constraints (Must Follow)
