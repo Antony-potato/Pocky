@@ -100,6 +100,7 @@ export default function PetScreen() {
   const progress = 0.1 + (pet.hasData ? 0.25 : 0) + (pet.loaded ? 0.35 : 0) + (worldReady ? 0.25 : 0);
   const status = pet.loaded
     ? (worldReady ? '¡Listo!' : 'Preparando la isla…')
+    : pet.syncError ? 'No se pudo conectar con el servidor: entrarás sin guardar cambios'
     : timedOut || startedOffline ? 'Sin internet: entrarás sin guardar cambios' : 'Despertando a Pocky…';
   const onWorldReady = useCallback(() => setWorldReady(true), []);
   const onSplashDone = useCallback(() => setSplash(false), []);
@@ -161,7 +162,7 @@ export default function PetScreen() {
               </span>
               <p className="text-[13px] leading-snug text-white/80">
                 {offline ? (
-                  <><b className="text-amber-300 font-extrabold">Sin conexión.</b> Puedes jugar con {pet.name} y verlo, pero lo que hagas no se guardará.
+                  <><b className="text-amber-300 font-extrabold">{pet.syncError ? 'No se pudo conectar con el servidor.' : 'Sin conexión.'}</b> Puedes jugar con {pet.name} y verlo, pero lo que hagas no se guardará.
                     {!pet.hasData && ' Aún no se han cargado sus datos.'}
                     {pet.syncError && <span className="text-white/45"> (error: {pet.syncError})</span>}</>
                 ) : (
