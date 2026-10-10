@@ -6,7 +6,8 @@ import CircularStats, { HUD_DARK } from './CircularStats';
 import Splash from './Splash';
 import { requestNotificationPermission } from '@/lib/messaging';
 import { computeAge, type PetAction } from '@/lib/petLogic';
-import { Utensils, Cookie, ShowerHead, TreePine, Gamepad2, Moon, Sun, Bell, PawPrint, WifiOff, Wifi, type LucideIcon } from 'lucide-react';
+import { getTimePhase } from '@/lib/timeBackground';
+import { Utensils, Candy, ShowerHead, TreePine, Gamepad2, Moon, Sun, Bell, PawPrint, WifiOff, Wifi, type LucideIcon } from 'lucide-react';
 
 // Three.js solo en el cliente (usa WebGL y window). Mientras carga, la tapa el Splash.
 const World = dynamic(() => import('./scene/World'), { ssr: false });
@@ -73,6 +74,14 @@ export default function PetScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMounted]);
 
+  // Barra de estado del color de la escena (agua de día / noche; oscuro durante la carga), sin franja blanca.
+  // iOS 26+ la tiñe con el fondo de html/body; Android usa theme-color.
+  const sceneBg = splash ? '#151a19' : getTimePhase(hour).water;
+  useEffect(() => {
+    document.documentElement.style.setProperty('--scene-bg', sceneBg);
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', sceneBg);
+  }, [sceneBg]);
+
   // Aviso al recuperar la conexión (mismo hueco que el aviso de "sin conexión").
   useEffect(() => {
     if (splash) { prevConnected.current = pet.isConnected; return; }
@@ -97,7 +106,7 @@ export default function PetScreen() {
 
   const actions: { id: PetAction; activityId: string; Icon: LucideIcon; style: IconStyle; color: string; label: string; disabled?: boolean }[] = [
     { id: 'feed', activityId: 'eating', Icon: Utensils, style: 'line', color: '#ff9f43', label: 'Alimentar' },
-    { id: 'treat', activityId: 'eating', Icon: Cookie, style: 'cutout', color: '#f0506e', label: 'Golosina' },
+    { id: 'treat', activityId: 'snacking', Icon: Candy, style: 'cutout', color: '#f0506e', label: 'Golosina' },
     { id: 'bathe', activityId: 'bathing', Icon: ShowerHead, style: 'line', color: '#38bdf8', label: 'Bañar' },
     { id: 'walk', activityId: 'walking', Icon: TreePine, style: 'solid', color: '#34d399', label: 'Pasear', disabled: pet.energy < 15 },
     { id: 'play', activityId: 'playing', Icon: Gamepad2, style: 'cutout', color: '#c084fc', label: 'Jugar', disabled: pet.energy < 10 },
@@ -119,8 +128,6 @@ export default function PetScreen() {
     <main className="h-dvh relative overflow-hidden bg-[#151a19] font-nunito select-none" style={SIZES}>
       {/* ===== ESCENA 3D (fondo a pantalla completa, también bajo la barra de estado) ===== */}
       <div className="absolute inset-0 z-0">{isMounted && <World hour={hour} onReady={onWorldReady} />}</div>
-      {/* Degradado sutil (sin desenfoque) para que la hora/batería se lean sobre la escena en el iPhone */}
-      <div className="absolute inset-x-0 top-0 z-10 h-[calc(env(safe-area-inset-top)*1.6)] bg-gradient-to-b from-[#151a19]/70 to-transparent pointer-events-none" />
 
       {/* ===== HUD: no captura toques salvo en sus píldoras, para poder girar la isla ===== */}
       <div className="absolute inset-0 z-10 pointer-events-none px-[max(1rem,env(safe-area-inset-left))] pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))] flex flex-col">
@@ -155,7 +162,8 @@ export default function PetScreen() {
               <p className="text-[13px] leading-snug text-white/80">
                 {offline ? (
                   <><b className="text-amber-300 font-extrabold">Sin conexión.</b> Puedes jugar con {pet.name} y verlo, pero lo que hagas no se guardará.
-                    {!pet.hasData && ' Aún no se han cargado sus datos.'}</>
+                    {!pet.hasData && ' Aún no se han cargado sus datos.'}
+                    {pet.syncError && <span className="text-white/45"> (error: {pet.syncError})</span>}</>
                 ) : (
                   <><b className="text-emerald-300 font-extrabold">Conectado de nuevo.</b> {pet.name} vuelve a su estado guardado.</>
                 )}

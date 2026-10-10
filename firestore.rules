@@ -1,26 +1,36 @@
 rules_version = '2';
 
+// Reglas de Pocky.
+// - Sesión obligatoria: la app inicia sesión anónima sola (src/lib/firebase.ts → ensureAuth).
+//   Requiere Firebase Console → Authentication → Sign-in method → Anónimo activado.
+// - El cron usa el Admin SDK, que no pasa por estas reglas.
+// - Publicar: `npx firebase-tools deploy --only firestore:rules --project pocky-2c011`
+//   (o pegar este archivo en Firebase Console → Firestore → Reglas → Publicar).
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /pets/{petId} {
-      // Allow anyone to read
-      allow read: if true;
-      
-      // Allow updates if the data is basically structured correctly
-      allow update: if request.resource.data.keys().hasAll(['hunger', 'happiness', 'cleanliness', 'energy', 'health']) 
-                    && request.resource.data.hunger is number && request.resource.data.hunger >= 0 && request.resource.data.hunger <= 100
-                    && request.resource.data.happiness is number && request.resource.data.happiness >= 0 && request.resource.data.happiness <= 100
-                    && request.resource.data.cleanliness is number && request.resource.data.cleanliness >= 0 && request.resource.data.cleanliness <= 100
-                    && request.resource.data.energy is number && request.resource.data.energy >= 0 && request.resource.data.energy <= 100
-                    && request.resource.data.health is number && request.resource.data.health >= 0 && request.resource.data.health <= 100
-                    // Prevent manipulation of core identity
-                    && request.resource.data.name == resource.data.name
-                    && request.resource.data.species == resource.data.species
-                    // Ensure fcmTokens is a list if it exists
-                    && (!request.resource.data.keys().hasAny(['fcmTokens']) || request.resource.data.fcmTokens is list);
 
-      // Allow initial create exactly once (if it doesn't exist)
-      allow create: if true;
+    function signedIn() { return request.auth != null; }
+    function inRange(v) { return v is number && v >= 0 && v <= 100; }
+    function statsValid(d) {
+      return inRange(d.hunger) && inRange(d.happiness) && inRange(d.cleanliness)
+          && inRange(d.energy) && inRange(d.health);
+    }
+
+    match /pets/{petId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn() && statsValid(request.resource.data);
+
+      allow update: if signedIn()
+        && statsValid(request.resource.data)
+        // Identidad y fecha de nacimiento inmutables: ningún móvil puede reiniciar el contador de días.
+        && request.resource.data.get('name', '') == resource.data.get('name', '')
+        && request.resource.data.get('species', '') == resource.data.get('species', '')
+        && request.resource.data.get('createdAt', 0) == resource.data.get('createdAt', 0)
+        && request.resource.data.get('fcmTokens', []) is list;
+
+      allow delete: if false;
     }
   }
 }

@@ -1,6 +1,6 @@
 // Checks mínimos de la lógica pura. Ejecutar: npm run check (Node >= 23, quita los tipos de .ts solo).
 import assert from 'node:assert/strict';
-import { NODES, findPath, nearestNode, WANDER, POI } from '../src/components/scene/nav.ts';
+import { NODES, findPath, nearestNode, WANDER, POI, TREAT_SPOTS } from '../src/components/scene/nav.ts';
 import { applyTick, applyAction, endActivity, syncedFields, computeAge, DEFAULT_PET } from '../src/lib/petLogic.ts';
 
 // Navegación: todos los destinos alcanzables desde el centro, y los caminos empiezan/acaban donde toca.
@@ -12,6 +12,13 @@ for (const to of [...WANDER, ...Object.values(POI).map(p => p.node)]) {
 assert.deepEqual(findPath('s2', 'bowl'), ['s2', 's', 'field', 'play', 'bowl']); // más corto que pasar por el centro
 assert.equal(nearestNode([7.4, -0.3]), 'bed');
 assert.ok(Object.keys(NODES).length > 10);
+// Golosinas: los claros donde caen están lejos de la casa (x -7..-4, z -4.3..-1.7) y del estanque.
+for (const id of TREAT_SPOTS) {
+  const [x, z] = NODES[id];
+  assert.ok(!(x > -7.5 && x < -3.5 && z > -4.8 && z < -1.2), `${id} demasiado cerca de la casa`);
+  assert.ok(((x - 3.8) / 3.3) ** 2 + ((z - 3.4) / 2.4) ** 2 > 1, `${id} demasiado cerca del estanque`);
+  assert.ok((x / 9.6) ** 2 + (z / 7.4) ** 2 < 0.75, `${id} demasiado cerca del borde`);
+}
 
 // applyTick: una actividad atascada (app cerrada a mitad de acción) vuelve a 'idle'.
 const t0 = Date.now();
@@ -35,6 +42,7 @@ assert.equal(fed.hunger, 65);
 assert.equal(fed.activity, 'eating');
 assert.equal(fed.totalCaresGiven, 1);
 assert.equal(applyAction(fed, 'bathe', t0), null, 'ocupado comiendo: no se puede bañar a la vez');
+assert.equal(applyAction(base, 'treat', t0).activity, 'snacking', 'la golosina es su propia actividad (no se ilumina con Alimentar)');
 assert.equal(applyAction({ ...base, energy: 5 }, 'play', t0), null, 'sin energía no juega');
 const slept = applyAction(base, 'sleep', t0);
 assert.equal(slept.mood, 'sleeping');

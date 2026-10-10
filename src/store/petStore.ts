@@ -1,6 +1,6 @@
 'use client';
 import { create } from 'zustand';
-import { db } from '@/lib/firebase';
+import { db, ensureAuth } from '@/lib/firebase';
 import { doc, setDoc, onSnapshot, runTransaction, serverTimestamp, arrayUnion } from 'firebase/firestore';
 import type { PetData, PetNeed } from '@/types/pet';
 import { getNeeds, applyTick, applyAction, endActivity, syncedFields, ACTION_MS, DEFAULT_PET, type PetAction } from '@/lib/petLogic';
@@ -26,6 +26,8 @@ interface PetStore extends PetData {
   loaded: boolean;
   /** Hay datos reales de Pocky (del servidor o de la caché del móvil), no solo los de por defecto. */
   hasData: boolean;
+  /** Código del último error de sesión/permisos (p. ej. 'permission-denied'), para mostrarlo en el aviso. */
+  syncError: string | null;
 
   act: (a: PetAction) => void;
   tick: () => void;
@@ -69,6 +71,7 @@ export const usePetStore = create<PetStore>((set, get) => {
     isConnected: false,
     loaded: false,
     hasData: false,
+    syncError: null,
 
     act: (a) => {
       const next = applyAction(get(), a);
@@ -94,6 +97,7 @@ export const usePetStore = create<PetStore>((set, get) => {
     // arrayUnion: no depende de que haya llegado el snapshot, así no se pisan los tokens del otro dispositivo.
     registerFCMToken: async (token: string) => {
       try {
+        await ensureAuth();
         await setDoc(PET, { fcmTokens: arrayUnion(token) }, { merge: true });
       } catch (e) { console.error('Token sync error:', e); }
     },
@@ -106,29 +110,36 @@ export const usePetStore = create<PetStore>((set, get) => {
       window.addEventListener('online', onNet);
       window.addEventListener('offline', onNet);
 
-      const unsub = onSnapshot(PET, { includeMetadataChanges: true }, (snap) => {
-        fromServer = !snap.metadata.fromCache;
-        if (!snap.exists()) {
-          // Solo se crea si el SERVIDOR confirma que no existe. Antes bastaba con la caché vacía sin conexión,
-          // y al reconectar machacaba a Pocky con los valores por defecto (y el contador de días volvía a 0).
-          if (fromServer) setDoc(PET, { ...DEFAULT_PET, createdAt: Date.now(), lastUpdated: Date.now() });
-          set({ isConnected: connected(), loaded: get().loaded || fromServer });
-          return;
-        }
-        const data = snap.data() as PetData;
-        if (fromServer) lastServer = data;
-        const json = JSON.stringify(data);
-        // Aplicar si cambiaron los datos o si acabamos de reconectar (descarta lo jugado sin conexión).
-        // Si solo cambió la metadata (p. ej. se fue la conexión), no machacamos lo que se está jugando.
-        if (json !== prevJson || (connected() && !get().isConnected)) {
-          set(view(data));
-          get().tick();
-        }
-        prevJson = json;
-        set({ isConnected: connected(), loaded: get().loaded || fromServer, hasData: true });
-      }, () => set({ isConnected: false }));
+      // Las reglas exigen sesión: primero sesión anónima, luego el listener.
+      let unsub = () => {}, stopped = false;
+      const fail = (e: { code?: string }) => { console.error('Firebase:', e); set({ isConnected: false, syncError: e.code ?? 'error' }); };
+      ensureAuth().then(() => {
+        if (stopped) return;
+        unsub = onSnapshot(PET, { includeMetadataChanges: true }, (snap) => {
+          fromServer = !snap.metadata.fromCache;
+          if (!snap.exists()) {
+            // Solo se crea si el SERVIDOR confirma que no existe. Antes bastaba con la caché vacía sin conexión,
+            // y al reconectar machacaba a Pocky con los valores por defecto (y el contador de días volvía a 0).
+            if (fromServer) setDoc(PET, { ...DEFAULT_PET, createdAt: Date.now(), lastUpdated: Date.now() });
+            set({ isConnected: connected(), loaded: get().loaded || fromServer });
+            return;
+          }
+          const data = snap.data() as PetData;
+          if (fromServer) lastServer = data;
+          const json = JSON.stringify(data);
+          // Aplicar si cambiaron los datos o si acabamos de reconectar (descarta lo jugado sin conexión).
+          // Si solo cambió la metadata (p. ej. se fue la conexión), no machacamos lo que se está jugando.
+          if (json !== prevJson || (connected() && !get().isConnected)) {
+            set(view(data));
+            get().tick();
+          }
+          prevJson = json;
+          set({ isConnected: connected(), loaded: get().loaded || fromServer, hasData: true, syncError: null });
+        }, fail);
+      }, fail);
 
       return () => {
+        stopped = true;
         unsub();
         window.removeEventListener('online', onNet);
         window.removeEventListener('offline', onNet);

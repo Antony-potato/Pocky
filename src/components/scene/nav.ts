@@ -26,6 +26,10 @@ export const POI = {
   sleep: { node: 'bed', face: [6.5, 1.5] },
 } as const satisfies Record<string, { node: NodeId; face: XZ }>;
 
+// Claros donde puede caer una golosina: ≥1.4 libres de casa, estanque, árboles, vallas y borde de la isla
+// (la golosina se desvía ≤0.35 del nodo y Pocky se para a 0.8 de ella).
+export const TREAT_SPOTS: NodeId[] = ['s', 'c', 'field', 'meadow', 'play'];
+
 export const WANDER: NodeId[] = ['s2', 's', 'c', 'n2', 'garden', 'meadow', 'field', 'southR', 'picnic', 'play', 'door'];
 export const TOUR: NodeId[] = ['n2', 's2', 'meadow', 'c'];
 

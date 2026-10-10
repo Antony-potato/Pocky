@@ -1,6 +1,6 @@
 export type PetSpecies  = 'cat' | 'dog' | 'bunny' | 'hamster';
 export type PetMood     = 'happy' | 'neutral' | 'sad' | 'sick' | 'sleeping' | 'excited';
-export type PetActivity = 'idle' | 'eating' | 'bathing' | 'walking' | 'playing' | 'sleeping';
+export type PetActivity = 'idle' | 'eating' | 'snacking' | 'bathing' | 'walking' | 'playing' | 'sleeping';
 
 export interface PetNeed {
   id:      string;

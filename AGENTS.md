@@ -41,6 +41,7 @@
    - Server: cron sends data-only messages (`data: {title, body, link}`) with `webpush.headers` `Urgency: high` (no Android Doze batching) and `TTL` 4 h. Don't add a `notification` payload unless the SW changes accordingly.
    - **Logic:** Cooldown of 4 hours between push notifications to prevent spam.
 3. **Synchronization (CRITICAL):**
+   - Firestore rules require auth: the client signs in anonymously (`ensureAuth` in `src/lib/firebase.ts`) before listening or writing. Without it everything is PERMISSION_DENIED and the app looks offline. Rules live in `firestore.rules`; publish with `npx firebase-tools deploy --only firestore:rules --project pocky-2c011`.
    - Actions are pure (`applyAction` in `petLogic.ts`), applied optimistically in local state and saved with a Firestore **transaction** that re-applies them to the server's state and writes only `syncedFields` (never name, `createdAt` or tokens). Cron also uses a transaction.
    - `tick()` is local-only and must never write.
    - `isConnected` = `navigator.onLine` AND last snapshot not `fromCache` (listener uses `includeMetadataChanges`). While disconnected nothing is written (transactions fail instead of queuing); local play is discarded when the server state comes back. Offline banner: icon + text, non-blocking, `aria-live`.
@@ -55,11 +56,12 @@
 - `src/components/scene/World.tsx`: Canvas (client-only via `next/dynamic`), ortho camera following Pocky, lights from `getTimePhase(hour)`.
 - `src/components/scene/Island.tsx`: Procedural island; instanced meshes (`Scatter`) to keep draw calls low on mobile.
 - `src/components/scene/Pocky.tsx`: Procedural cat + behaviour (store `activity`/`isAsleep` → walk to a POI → pose). Speech bubble is a plain DOM node projected each frame (drei `Html` breaks under React 19 StrictMode).
-- `src/components/scene/nav.ts`: Waypoint graph + Dijkstra; POIs per action (bowl, pond, play, bed).
+- `src/components/scene/nav.ts`: Waypoint graph + Dijkstra; POIs per action (bowl, pond, play, bed); `TREAT_SPOTS` = clearings where treats may fall (kept ≥1.4 away from house/pond/edge, asserted in `npm run check`).
+- `src/components/scene/Treat.tsx` + `toon.tsx`: procedural treats (activity `snacking`): kind/spot derived from `totalCaresGiven` so both phones agree; it falls, Pocky walks to it and eats it in bites. `toon.tsx` = shared toon material + outline.
 - `public/firebase-messaging-sw.js`: Push service worker (no SDK): shows every push, handles clicks.
 
 ## ⚠️ Boundaries and Constraints (Must Follow)
 - **Safari iOS PWA:** Push notifications only work after the user registers through a manual action (like the 🔔 button) and ONLY if installed on the home screen.
 - **VAPID Key:** Optional `NEXT_PUBLIC_FIREBASE_VAPID_KEY` = public key from Firebase Console → Cloud Messaging → Web Push certificates (falls back to Firebase's default key).
 - **Firebase Admin:** `route.ts` uses `firebase-admin`, which is NOT compatible with edge runtime; keep it on nodejs runtime.
-- **Layout:** Always use `h-dvh` (dynamic viewport height) to prevent layout shifts on mobile when the URL bar appears/disappears. `viewportFit: 'cover'` + iOS `black-translucent` status bar: the scene goes under the clock, so the HUD must pad with `env(safe-area-inset-*)`. Android status bar = `theme_color` `#151a19`.
+- **Layout:** Always use `h-dvh` (dynamic viewport height) to prevent layout shifts on mobile when the URL bar appears/disappears. `viewportFit: 'cover'` + iOS `black-translucent` status bar: the scene goes under the clock, so the HUD must pad with `env(safe-area-inset-*)`. iOS 26+ ignores `theme-color` and tints the status bar (and its blur) with the `html`/`body` background, so `PetScreen` sets `--scene-bg` (and the theme-color meta for Android) to the scene color.

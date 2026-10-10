@@ -1,5 +1,6 @@
-import { initializeApp, getApps } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
+import { initializeFirestore, persistentLocalCache } from 'firebase/firestore';
+import { getAuth, signInAnonymously } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey:            process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -11,17 +12,18 @@ const firebaseConfig = {
 };
 
 // Evita inicializar múltiples veces en desarrollo (hot reload)
-export let app: any;
-if (getApps().length === 0) {
-  app = initializeApp(firebaseConfig);
-} else {
-  app = getApps()[0];
+export const app: FirebaseApp = getApps()[0] ?? initializeApp(firebaseConfig);
+
+// Caché persistente: la PWA arranca con los últimos datos aunque no haya red.
+export const db = initializeFirestore(app, { localCache: persistentLocalCache() });
+
+/**
+ * Sesión anónima: las reglas de Firestore exigen `request.auth` (sin sesión todo da PERMISSION_DENIED,
+ * que es lo que hacía que la app pareciera "sin conexión"). Reutiliza la sesión guardada entre recargas.
+ * Requiere Firebase Console → Authentication → Sign-in method → Anónimo activado.
+ */
+let authReady: Promise<unknown> | null = null;
+export function ensureAuth() {
+  authReady ??= signInAnonymously(getAuth(app)).catch(e => { authReady = null; throw e; });
+  return authReady;
 }
-
-import { initializeFirestore, persistentLocalCache } from 'firebase/firestore';
-
-// Usamos initializeFirestore con persistentLocalCache para habilitar
-// el soporte offline de la PWA.
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache()
-});

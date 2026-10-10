@@ -87,7 +87,8 @@ export function computeAge(createdAt: number, now = Date.now()): number {
 export type PetAction = 'feed' | 'treat' | 'bathe' | 'walk' | 'play' | 'sleep' | 'wake';
 
 // Cuánto dura cada acción antes de volver a 'idle' (dormir dura hasta despertar).
-export const ACTION_MS: Partial<Record<PetAction, number>> = { feed: 2500, treat: 2500, bathe: 3000, walk: 4000, play: 3000 };
+// La golosina dura más: cae del cielo y Pocky tiene que ir a por ella.
+export const ACTION_MS: Partial<Record<PetAction, number>> = { feed: 2500, treat: 6000, bathe: 3000, walk: 4000, play: 3000 };
 
 const withMood = (s: PetData): PetData => ({ ...s, mood: getMood(s) });
 
@@ -103,7 +104,7 @@ export function applyAction(s: PetData, a: PetAction, now = Date.now()): PetData
   switch (a) {
     case 'sleep': return withMood({ ...r, isAsleep: true, activity: 'sleeping' });
     case 'feed': return withMood({ ...cared, activity: 'eating', hunger: clamp(r.hunger + 15), happiness: clamp(r.happiness + 5) });
-    case 'treat': return withMood({ ...cared, activity: 'eating', hunger: clamp(r.hunger + 25), happiness: clamp(r.happiness + 10) });
+    case 'treat': return withMood({ ...cared, activity: 'snacking', hunger: clamp(r.hunger + 25), happiness: clamp(r.happiness + 10) });
     case 'bathe': return withMood({ ...cared, activity: 'bathing', cleanliness: clamp(r.cleanliness + 40), health: clamp(r.health + 5) });
     case 'walk': return r.energy < 15 ? null : withMood({ ...cared, activity: 'walking', happiness: clamp(r.happiness + 20), energy: clamp(r.energy - 10), health: clamp(r.health + 5), hunger: clamp(r.hunger - 5) });
     case 'play': return r.energy < 10 ? null : withMood({ ...cared, activity: 'playing', happiness: clamp(r.happiness + 15), energy: clamp(r.energy - 8), hunger: clamp(r.hunger - 5) });
