@@ -61,6 +61,11 @@ export default function PetScreen() {
   useEffect(() => {
     if (!isMounted) return;
     const unsub = pet.startListening();
+    // Si ya hay permiso, renueva el token en silencio (sin prompt): los tokens caducan y si no se
+    // actualizan dejan de llegar notificaciones a ese móvil.
+    if ('Notification' in window && Notification.permission === 'granted') {
+      requestNotificationPermission().then(r => { if ('token' in r) usePetStore.getState().registerFCMToken(r.token); });
+    }
     const interval = setInterval(() => { usePetStore.getState().tick(); }, 20000);
     return () => { unsub(); clearInterval(interval); };
     // eslint-disable-next-line react-hooks/exhaustive-deps

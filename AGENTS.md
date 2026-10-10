@@ -34,9 +34,9 @@
    - Rates: 1.3x speed boost (e.g., hunger -= mins * 1.04).
    - Sleep: High priority. Reduces energy consumption but freezes other stats.
 2. **Notifications (FCM only):**
-   - Client: `src/lib/messaging.ts` → `getToken` with `firebase-messaging-sw.js` (config passed by query string). Tokens stored in `fcmTokens` with `arrayUnion`.
-   - Server: cron sends `sendEachForMulticast` with a `notification` payload + `webpush.fcmOptions.link`; dead tokens are pruned.
-   - Do NOT call `showNotification` in `onBackgroundMessage`: the SDK already displays `notification` payloads (doing both duplicated them).
+   - Client: `src/lib/messaging.ts` → `getToken` with our own `firebase-messaging-sw.js`. Tokens stored in `fcmTokens` with `arrayUnion`, and refreshed silently on app open when permission is already granted.
+   - SW has NO Firebase SDK: it handles `push` itself and ALWAYS calls `showNotification` (iOS revokes the subscription after pushes without a visible notification; the SDK skipped it when it thought the app was open). `tag: 'pocky'` collapses late arrivals into one.
+   - Server: cron sends data-only messages (`data: {title, body, link}`) with `webpush.headers` `Urgency: high` (no Android Doze batching) and `TTL` 4 h. Don't add a `notification` payload unless the SW changes accordingly.
    - **Logic:** Cooldown of 4 hours between push notifications to prevent spam.
 3. **Synchronization:** Uses Zustand + `onSnapshot` from Firestore. CRITICAL: Client-side `tick()` must NOT call `sync()` to avoid overwritting stats when multiple tabs are open; only server-side Cron or explicit user actions update the DB.
 
@@ -49,7 +49,7 @@
 - `src/components/scene/Island.tsx`: Procedural island; instanced meshes (`Scatter`) to keep draw calls low on mobile.
 - `src/components/scene/Pocky.tsx`: Procedural cat + behaviour (store `activity`/`isAsleep` → walk to a POI → pose). Speech bubble is a plain DOM node projected each frame (drei `Html` breaks under React 19 StrictMode).
 - `src/components/scene/nav.ts`: Waypoint graph + Dijkstra; POIs per action (bowl, pond, play, bed).
-- `public/firebase-messaging-sw.js`: FCM service worker (only initializes the SDK).
+- `public/firebase-messaging-sw.js`: Push service worker (no SDK): shows every push, handles clicks.
 
 ## ⚠️ Boundaries and Constraints (Must Follow)
 - **Safari iOS PWA:** Push notifications only work after the user registers through a manual action (like the 🔔 button) and ONLY if installed on the home screen.

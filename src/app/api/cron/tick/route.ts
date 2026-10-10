@@ -49,13 +49,14 @@ export async function GET(req: NextRequest) {
     let notified = 0;
 
     if (needs.length > 0 && tokens.length > 0 && now - (pet.lastNotificationSent ?? 0) > COOLDOWN_MS) {
+      // Solo `data`: la notificación la pinta siempre nuestro service worker (fiable en iOS, sin duplicados).
       const res = await getMessaging(adminApp).sendEachForMulticast({
         tokens,
-        notification: { title: `¡${pet.name} te necesita!`, body: needs.map(n => n.message).join(' y ') },
+        data: { title: `¡${pet.name} te necesita!`, body: needs.map(n => n.message).join(' y '), link: appUrl },
         webpush: {
-          notification: { icon: '/icons/iconoPwa-192.png', badge: '/icons/iconoPwa-192.png' },
-          // Abre la app al tocar la notificación. FCM solo acepta https (en local no se pone).
-          ...(appUrl.startsWith('https://') && { fcmOptions: { link: appUrl } }),
+          // high: entrega inmediata aunque Android esté en reposo (si no, las acumula y llegan juntas).
+          // TTL 4 h: si el móvil no la recibe a tiempo, se descarta en vez de llegar tarde.
+          headers: { Urgency: 'high', TTL: String(COOLDOWN_MS / 1000) },
         },
       });
       notified = res.successCount;
