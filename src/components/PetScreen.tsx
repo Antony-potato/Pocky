@@ -125,7 +125,8 @@ export default function PetScreen() {
   const offline = !splash && !pet.isConnected;
 
   return (
-    <main className="h-dvh relative overflow-hidden bg-[#151a19] font-nunito select-none" style={SIZES}>
+    // fixed inset-0, no h-dvh: en la PWA de iOS 26 dvh se queda con la altura vieja al girar horizontal → vertical.
+    <main className="fixed inset-0 overflow-hidden bg-[#151a19] font-nunito select-none" style={SIZES}>
       {/* ===== ESCENA 3D (fondo a pantalla completa, también bajo la barra de estado) ===== */}
       <div className="absolute inset-0 z-0">{isMounted && <World hour={hour} onReady={onWorldReady} onTint={splash ? undefined : paintStatusBar} />}</div>
 

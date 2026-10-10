@@ -44,8 +44,8 @@ function FirstFrame({ onReady }: { onReady?: () => void }) {
   return null;
 }
 
-// iOS 26 desenfoca la franja de la hora y la tiñe con el fondo de html/body (no se puede quitar desde CSS).
-// Le damos el color real del borde superior de la escena (con luz y tone mapping), no un hex fijo que no coincide.
+// La barra de la hora (opaca) toma el color real del borde superior de la escena (con luz y tone mapping),
+// no un hex fijo que no coincide.
 function StatusTint({ onTint }: { onTint: (color: string) => void }) {
   const gl = useThree(s => s.gl);
   useEffect(() => {
@@ -55,8 +55,7 @@ function StatusTint({ onTint }: { onTint: (color: string) => void }) {
       if (t - last < 1500) return; // ponytail: readPixels sincroniza la GPU; 1 fila cada 1,5 s es despreciable
       last = t;
       const ctx = gl.getContext(), w = ctx.drawingBufferWidth, px = new Uint8Array(w * 4);
-      const y = Math.max(0, ctx.drawingBufferHeight - 1 - Math.round(24 * gl.getPixelRatio())); // mitad de la franja de la hora
-      ctx.readPixels(0, y, w, 1, ctx.RGBA, ctx.UNSIGNED_BYTE, px);
+      ctx.readPixels(0, ctx.drawingBufferHeight - 1, w, 1, ctx.RGBA, ctx.UNSIGNED_BYTE, px); // fila pegada a la barra
       let r = 0, g = 0, b = 0;
       for (let i = 0; i < px.length; i += 4) { r += px[i]; g += px[i + 1]; b += px[i + 2]; }
       onTint(`rgb(${Math.round(r / w)},${Math.round(g / w)},${Math.round(b / w)})`);

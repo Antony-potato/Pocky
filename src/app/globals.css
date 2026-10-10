@@ -10,8 +10,10 @@
 
 html, body {
   height: 100%;
-  /* iOS 26+ ignora theme-color: la barra de estado (y su desenfoque) toma este fondo. PetScreen lo iguala a la escena. */
+  /* Instalaciones antiguas con black-translucent: iOS 26 tiñe la barra con este fondo. PetScreen lo iguala a la escena. */
   background-color: var(--scene-bg, #151a19);
+  /* Al girar el móvil la página no debe quedarse desplazada */
+  overflow: hidden;
   /* Evita el scroll bounce en iOS PWA */
   overscroll-behavior: none;
   /* Evita selección de texto para que se sienta como app nativa */
