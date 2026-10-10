@@ -54,7 +54,8 @@
 - `src/store/petStore.ts`: Global state and Firestore real-time listener.
 - `src/components/PetScreen.tsx`: Main UI (HUD, Alerts, Actions).
 - `src/components/scene/World.tsx`: Canvas (client-only via `next/dynamic`), ortho camera following Pocky, lights from `getTimePhase(hour)`.
-- `src/components/scene/Island.tsx`: Procedural island; instanced meshes (`Scatter`) to keep draw calls low on mobile.
+- `src/components/scene/Island.tsx`: Procedural island; instanced meshes (`Scatter`) to keep draw calls low on mobile. Water (sea + sunken pond), grass, dirt, path and roof are `MeshStandardMaterial`s with injected GLSL (keep lights/shadows/tone mapping).
+- `src/components/scene/materials.ts`: `shaded()` GLSL-injection helper (unique `key` per variant), lobed `blob()` geometry for foliage/rocks, `smoothSlab()` normals for extrudes.
 - `src/components/scene/Pocky.tsx`: Procedural cat + behaviour (store `activity`/`isAsleep` → walk to a POI → pose). Speech bubble is a plain DOM node projected each frame (drei `Html` breaks under React 19 StrictMode).
 - `src/components/scene/nav.ts`: Waypoint graph + Dijkstra; POIs per action (bowl, pond, play, bed); `TREAT_SPOTS` = clearings where treats may fall (kept ≥1.4 away from house/pond/edge, asserted in `npm run check`).
 - `src/components/scene/Treat.tsx` + `toon.tsx`: procedural treats (activity `snacking`): kind/spot derived from `totalCaresGiven` so both phones agree; it falls, Pocky walks to it and eats it in bites. `toon.tsx` = shared toon material + outline.

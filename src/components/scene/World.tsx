@@ -2,6 +2,7 @@
 import { useEffect, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
+import * as THREE from 'three';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import Island from './Island';
 import Pocky, { pockyPos } from './Pocky';
@@ -46,16 +47,18 @@ function FirstFrame({ onReady }: { onReady?: () => void }) {
 export default function World({ hour, onReady }: { hour: number; onReady?: () => void }) {
   const ph = getTimePhase(hour);
   return (
-    <Canvas shadows="percentage" orthographic flat dpr={[1, 2]} camera={{ position: OFFSET, zoom: 40, near: 0.1, far: 100 }}>
+    // Neutral: casi no toca los colores medios y suaviza las luces altas (tejado, arena, espuma) en vez de quemarlas.
+    <Canvas shadows="percentage" orthographic dpr={[1, 2]} gl={{ toneMapping: THREE.NeutralToneMapping }}
+      camera={{ position: OFFSET, zoom: 40, near: 0.1, far: 100 }}>
       <color attach="background" args={[ph.water]} />
       <hemisphereLight color={ph.sky} groundColor={ph.ground} intensity={ph.hemiIntensity} />
       <directionalLight
-        position={[8, 14, 6]} color={ph.sun} intensity={ph.sunIntensity} castShadow
-        shadow-mapSize={[1024, 1024]} shadow-bias={-0.0004} shadow-normalBias={0.03}
+        position={[7, 14, 8.5]} color={ph.sun} intensity={ph.sunIntensity} castShadow
+        shadow-mapSize={[1024, 1024]} shadow-radius={3} shadow-bias={-0.0004} shadow-normalBias={0.03}
         shadow-camera-left={-13} shadow-camera-right={13} shadow-camera-top={13} shadow-camera-bottom={-13}
         shadow-camera-near={1} shadow-camera-far={40}
       />
-      <Island waterColor={ph.water} glow={ph.glow} />
+      <Island waterColor={ph.water} sky={ph.sky} glow={ph.glow} />
       <Pocky />
       <CameraRig />
       <FirstFrame onReady={onReady} />
