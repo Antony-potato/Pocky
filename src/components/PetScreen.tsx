@@ -6,7 +6,6 @@ import CircularStats, { HUD_DARK } from './CircularStats';
 import Splash from './Splash';
 import { requestNotificationPermission } from '@/lib/messaging';
 import { computeAge, type PetAction } from '@/lib/petLogic';
-import { getTimePhase } from '@/lib/timeBackground';
 import { Utensils, Candy, ShowerHead, TreePine, Gamepad2, Moon, Sun, Bell, PawPrint, WifiOff, Wifi, type LucideIcon } from 'lucide-react';
 
 // Three.js solo en el cliente (usa WebGL y window). Mientras carga, la tapa el Splash.
@@ -74,13 +73,13 @@ export default function PetScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMounted]);
 
-  // Barra de estado del color de la escena (agua de día / noche; oscuro durante la carga), sin franja blanca.
+  // Barra de estado del color que se ve arriba en la escena (World lo lee del canvas); oscura durante la carga.
   // iOS 26+ la tiñe con el fondo de html/body; Android usa theme-color.
-  const sceneBg = splash ? '#151a19' : getTimePhase(hour).water;
-  useEffect(() => {
-    document.documentElement.style.setProperty('--scene-bg', sceneBg);
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', sceneBg);
-  }, [sceneBg]);
+  const paintStatusBar = useCallback((color: string) => {
+    document.documentElement.style.setProperty('--scene-bg', color);
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', color);
+  }, []);
+  useEffect(() => { if (splash) paintStatusBar('#151a19'); }, [splash, paintStatusBar]);
 
   // Aviso al recuperar la conexión (mismo hueco que el aviso de "sin conexión").
   useEffect(() => {
@@ -128,7 +127,7 @@ export default function PetScreen() {
   return (
     <main className="h-dvh relative overflow-hidden bg-[#151a19] font-nunito select-none" style={SIZES}>
       {/* ===== ESCENA 3D (fondo a pantalla completa, también bajo la barra de estado) ===== */}
-      <div className="absolute inset-0 z-0">{isMounted && <World hour={hour} onReady={onWorldReady} />}</div>
+      <div className="absolute inset-0 z-0">{isMounted && <World hour={hour} onReady={onWorldReady} onTint={splash ? undefined : paintStatusBar} />}</div>
 
       {/* ===== HUD: no captura toques salvo en sus píldoras, para poder girar la isla ===== */}
       <div className="absolute inset-0 z-10 pointer-events-none px-[max(1rem,env(safe-area-inset-left))] pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))] flex flex-col">
