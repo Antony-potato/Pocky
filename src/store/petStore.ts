@@ -32,7 +32,6 @@ interface PetStore extends PetData {
   sync: (data: Partial<PetData>) => Promise<void>;
   startListening: () => () => void;
   registerFCMToken: (token: string) => Promise<void>;
-  registerWebPushSubscription: (sub: object) => Promise<void>;
 }
 
 export const usePetStore = create<PetStore>((set, get) => ({
@@ -63,12 +62,6 @@ export const usePetStore = create<PetStore>((set, get) => ({
     try {
       await setDoc(doc(db, PET_DOC), { fcmTokens: arrayUnion(token) }, { merge: true });
     } catch (e) { console.error('Token sync error:', e); }
-  },
-
-  registerWebPushSubscription: async (sub: object) => {
-    try {
-      await setDoc(doc(db, PET_DOC), { webPushSubscriptions: arrayUnion(sub) }, { merge: true });
-    } catch (e) { console.error('WebPush sub sync error:', e); }
   },
 
   startListening: () => {

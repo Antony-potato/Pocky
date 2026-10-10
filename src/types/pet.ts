@@ -26,6 +26,5 @@ export interface PetData {
   lastNotificationSent?: number;
   totalCaresGiven:      number;
   lastSyncedBy:         string;
-  fcmTokens?:           string[]; // Tokens para notificaciones push (Chrome/Android)
-  webPushSubscriptions?: object[]; // Suscripciones Web Push nativas (Safari/iOS)
+  fcmTokens?:           string[]; // Tokens FCM (Chrome, Android y Safari/iPhone)
 }

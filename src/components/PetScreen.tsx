@@ -53,15 +53,8 @@ export default function PetScreen() {
   // Las notificaciones se activan solo con el botón 🔔: iOS exige un gesto del usuario.
   const handleEnableNotifications = async () => {
     const result = await requestNotificationPermission();
-    if (!result) {
-      alert('No se pudieron activar las notificaciones. Revisa los permisos de tu navegador.');
-      return;
-    }
-    if (result.type === 'fcm') {
-      usePetStore.getState().registerFCMToken(result.token);
-    } else {
-      usePetStore.getState().registerWebPushSubscription(result.subscription);
-    }
+    if ('error' in result) return alert(result.error);
+    await usePetStore.getState().registerFCMToken(result.token);
     alert('¡Notificaciones activadas! 🔔');
   };
 

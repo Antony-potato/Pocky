@@ -11,7 +11,7 @@ Una mascota virtual compartida entre dos personas, construida con Next.js PWA + 
 - 📱 PWA — se instala en iPhone desde Safari sin App Store
 - 📦 APK — se instala en Android sin Google Play
 - ⏰ Degradación 24/7 aunque nadie tenga la app abierta (Vercel Cron)
-- 🔔 Notificaciones push cuando la mascota necesita algo (próximamente)
+- 🔔 Notificaciones push gratis con Firebase Cloud Messaging (Chrome, Android e iPhone con Pocky en la pantalla de inicio); se activan con el botón 🔔
 - 🖼️ Widget en pantalla de inicio via Scriptable (próximamente)
 
 ---
@@ -214,7 +214,7 @@ Scriptable lee Firebase directamente y muestra el estado de Pocky en tu pantalla
 
 ### Degradación 24/7
 
-El Vercel Cron corre cada hora y aplica la degradación aunque nadie tenga la app abierta. Si stats caen bajo 20, se envía una notificación push.
+El Vercel Cron (`vercel.json`) aplica la degradación aunque nadie tenga la app abierta y, si Pocky necesita algo, envía una notificación por FCM (máx. una cada 4 h). En el plan Hobby de Vercel el cron solo puede correr una vez al día.
 
 ### Estados de ánimo
 

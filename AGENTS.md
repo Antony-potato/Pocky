@@ -6,8 +6,8 @@
 
 ## 📁 Project Overview and Context
 - **Project Name:** Pocky — Mascota Virtual para Dos
-- **Description:** A shared virtual pet application between two people, featuring real-time state sync, 24/7 autonomous stat degradation via Cron, and dual-transport push notifications (FCM & Web Push).
-- **Tech Stack:** Next.js (App Router), Three.js via @react-three/fiber + drei (3D scene), Firebase Firestore (Real-time DB), Firebase Cloud Messaging (Android/Chrome), Web Push API (Safari/iOS), Zustand (State Management), Lucide React (Icons), Tailwind CSS v3/v4.
+- **Description:** A shared virtual pet application between two people, featuring real-time state sync, 24/7 autonomous stat degradation via Cron, and push notifications via Firebase Cloud Messaging (free; one transport for every platform).
+- **Tech Stack:** Next.js (App Router), Three.js via @react-three/fiber + drei (3D scene), Firebase Firestore (Real-time DB), Firebase Cloud Messaging (Chrome, Android and Safari/iOS PWA), Zustand (State Management), Lucide React (Icons), Tailwind CSS v3/v4.
 - **Platform:** Mobile-first PWA intended to be installed on home screens.
 
 ## 🛠️ Setup and Development Commands
@@ -33,14 +33,15 @@
    - Happens locally 20s for UI updates and Server-side via Vercel Cron for 24/7 persistence.
    - Rates: 1.3x speed boost (e.g., hunger -= mins * 1.04).
    - Sleep: High priority. Reduces energy consumption but freezes other stats.
-2. **Dual-Transport Notifications:**
-   - **FCM:** Used for Chrome/Android via `firebase-messaging-sw.js`.
-   - **Web Push:** Used for Safari/iOS PWA via `sw-push.js` (native push).
+2. **Notifications (FCM only):**
+   - Client: `src/lib/messaging.ts` → `getToken` with `firebase-messaging-sw.js` (config passed by query string). Tokens stored in `fcmTokens` with `arrayUnion`.
+   - Server: cron sends `sendEachForMulticast` with a `notification` payload + `webpush.fcmOptions.link`; dead tokens are pruned.
+   - Do NOT call `showNotification` in `onBackgroundMessage`: the SDK already displays `notification` payloads (doing both duplicated them).
    - **Logic:** Cooldown of 4 hours between push notifications to prevent spam.
 3. **Synchronization:** Uses Zustand + `onSnapshot` from Firestore. CRITICAL: Client-side `tick()` must NOT call `sync()` to avoid overwritting stats when multiple tabs are open; only server-side Cron or explicit user actions update the DB.
 
 ## 🏗️ Project Structure and File Locations
-- `src/app/api/cron/tick/route.ts`: Vercel Cron logic (sends push via `web-push` and `firebase-admin`).
+- `src/app/api/cron/tick/route.ts`: Vercel Cron logic (sends push via `firebase-admin` messaging).
 - `src/lib/petLogic.ts`: Pure functions for pet stats, moods, and aging.
 - `src/store/petStore.ts`: Global state and Firestore real-time listener.
 - `src/components/PetScreen.tsx`: Main UI (HUD, Alerts, Actions).
@@ -48,10 +49,10 @@
 - `src/components/scene/Island.tsx`: Procedural island; instanced meshes (`Scatter`) to keep draw calls low on mobile.
 - `src/components/scene/Pocky.tsx`: Procedural cat + behaviour (store `activity`/`isAsleep` → walk to a POI → pose). Speech bubble is a plain DOM node projected each frame (drei `Html` breaks under React 19 StrictMode).
 - `src/components/scene/nav.ts`: Waypoint graph + Dijkstra; POIs per action (bowl, pond, play, bed).
-- `public/sw-push.js`: Native service worker for Safari push events.
+- `public/firebase-messaging-sw.js`: FCM service worker (only initializes the SDK).
 
 ## ⚠️ Boundaries and Constraints (Must Follow)
 - **Safari iOS PWA:** Push notifications only work after the user registers through a manual action (like the 🔔 button) and ONLY if installed on the home screen.
-- **VAPID Keys:** Ensure `NEXT_PUBLIC_VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` are used for Web Push.
+- **VAPID Key:** Optional `NEXT_PUBLIC_FIREBASE_VAPID_KEY` = public key from Firebase Console → Cloud Messaging → Web Push certificates (falls back to Firebase's default key).
 - **Firebase Admin:** `route.ts` uses `firebase-admin`, which is NOT compatible with edge runtime; keep it on nodejs runtime.
 - **Layout:** Always use `h-dvh` (dynamic viewport height) to prevent layout shifts on mobile when the URL bar appears/disappears.
