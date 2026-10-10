@@ -15,9 +15,9 @@ export const metadata: Metadata = {
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
-    // Opaca: con black-translucent iOS 26 pone un desenfoque bajo la hora que no se puede quitar.
-    // Se pinta con theme-color = color del borde superior de la escena (PetScreen). Cambiarlo exige reinstalar la PWA.
-    statusBarStyle: 'default',
+    // Transparente: la escena se ve bajo la hora. iOS 26 le pone un desenfoque propio que solo se quita con barra
+    // opaca ('default' sale negra). Cambiar este valor exige volver a añadir la PWA a la pantalla de inicio.
+    statusBarStyle: 'black-translucent',
     title: 'Pocky',
   },
   icons: {
