@@ -10,7 +10,7 @@ Una mascota virtual compartida entre dos personas, construida con Next.js PWA + 
 - 💾 Sincronización en tiempo real entre dos teléfonos (Firebase)
 - 📱 PWA — se instala en iPhone desde Safari sin App Store
 - 📦 APK — se instala en Android sin Google Play
-- ⏰ Degradación 24/7 aunque nadie tenga la app abierta (Vercel Cron)
+- ⏰ Degradación 24/7 aunque nadie tenga la app abierta (cron-job.org)
 - 🔔 Notificaciones push gratis con Firebase Cloud Messaging (Chrome, Android e iPhone con Pocky en la pantalla de inicio); se activan con el botón 🔔
 - 🖼️ Widget en pantalla de inicio via Scriptable (próximamente)
 
@@ -20,7 +20,7 @@ Una mascota virtual compartida entre dos personas, construida con Next.js PWA + 
 
 ```
 iPhone (PWA Safari)  ──┐
-                        ├──→ Firebase Firestore ←── Vercel Cron (cada hora)
+                        ├──→ Firebase Firestore ←── cron-job.org (cada 15 min)
 Android (APK)        ──┘         (datos)              (degrada stats)
 ```
 
@@ -63,7 +63,6 @@ pocky-next/
 ├── tailwind.config.ts
 ├── postcss.config.mjs
 ├── tsconfig.json
-├── vercel.json                     ← configura el cron job
 ├── .env.example                    ← plantilla de variables de entorno
 └── .gitignore
 ```
@@ -148,7 +147,7 @@ git push -u origin main
 3. En **Domains** conecta tu dominio propio
 4. Deploy 🚀
 
-El cron job (`vercel.json`) se activa automáticamente — Vercel llama a `/api/cron/tick` cada hora.
+El tick lo dispara [cron-job.org](https://cron-job.org) cada 15 min: `GET https://pocky-next.vercel.app/api/cron/tick` con la cabecera `Authorization: Bearer TU_CRON_SECRET`. No uses los crons de `vercel.json`: el plan Hobby solo permite uno diario.
 
 ---
 
@@ -214,7 +213,7 @@ Scriptable lee Firebase directamente y muestra el estado de Pocky en tu pantalla
 
 ### Degradación 24/7
 
-El Vercel Cron (`vercel.json`) aplica la degradación aunque nadie tenga la app abierta y, si Pocky necesita algo, envía una notificación por FCM (máx. una cada 4 h). En el plan Hobby de Vercel el cron solo puede correr una vez al día.
+cron-job.org llama a `/api/cron/tick` cada 15 min: aplica la degradación aunque nadie tenga la app abierta y, si Pocky necesita algo, envía una notificación por FCM (máx. una cada 4 h).
 
 ### Estados de ánimo
 

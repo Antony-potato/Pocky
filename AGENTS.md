@@ -30,7 +30,7 @@
 
 ## ✨ Core Mechanics & Logic
 1. **Stat Degradation (applyTick):** 
-   - Happens locally 20s for UI updates and Server-side via Vercel Cron for 24/7 persistence.
+   - Happens locally 20s for UI updates and Server-side via cron-job.org (every 15 min, `Authorization: Bearer CRON_SECRET`) for 24/7 persistence. Don't add crons to `vercel.json`: Hobby only allows daily ones.
    - Rates: 1.3x speed boost (e.g., hunger -= mins * 1.04).
    - Sleep: High priority. Reduces energy consumption but freezes other stats.
 2. **Notifications (FCM only):**
@@ -41,7 +41,7 @@
 3. **Synchronization:** Uses Zustand + `onSnapshot` from Firestore. CRITICAL: Client-side `tick()` must NOT call `sync()` to avoid overwritting stats when multiple tabs are open; only server-side Cron or explicit user actions update the DB.
 
 ## 🏗️ Project Structure and File Locations
-- `src/app/api/cron/tick/route.ts`: Vercel Cron logic (sends push via `firebase-admin` messaging).
+- `src/app/api/cron/tick/route.ts`: Cron endpoint called by cron-job.org (sends push via `firebase-admin` messaging).
 - `src/lib/petLogic.ts`: Pure functions for pet stats, moods, and aging.
 - `src/store/petStore.ts`: Global state and Firestore real-time listener.
 - `src/components/PetScreen.tsx`: Main UI (HUD, Alerts, Actions).
