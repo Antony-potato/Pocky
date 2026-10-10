@@ -31,6 +31,8 @@ type Patch = {
   color?: string; // retoca diffuseColor
   normal?: string; // retoca `normal` (espacio de vista)
   light?: string; // retoca outgoingLight
+  vhead?: string; // declaraciones del vertex (atributos, uniforms, funciones)
+  vertex?: string; // retoca `transformed` (posición local) antes de proyectar; con él, el vertex también tiene el ruido
 };
 
 // En el fragment hay vW (posición en el mundo) y vL (posición local, antes del instancing).
@@ -39,7 +41,8 @@ export function shaded(params: THREE.MeshStandardMaterialParameters, p: Patch) {
   m.onBeforeCompile = s => {
     Object.assign(s.uniforms, p.uniforms);
     s.vertexShader = s.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vW;\nvarying vec3 vL;')
+      .replace('#include <common>', `#include <common>\nvarying vec3 vW;\nvarying vec3 vL;\n${p.vertex ? NOISE : ''}\n${p.vhead ?? ''}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\n{${p.vertex ?? ''}}`)
       .replace('#include <project_vertex>', `#include <project_vertex>
         vL = transformed;
         vec4 wq = vec4(transformed, 1.);
