@@ -20,7 +20,12 @@ function getAdminApp() {
 }
 
 const COOLDOWN_MS = 4 * 60 * 60 * 1000; // máx. una notificación cada 4 h
-const DEAD_TOKEN = new Set(['messaging/invalid-registration-token', 'messaging/registration-token-not-registered']);
+// mismatched-credential / invalid-argument: Apple rechaza la suscripción (p. ej. creada con otra clave VAPID).
+// Nunca se recuperan; el móvil crea uno nuevo al abrir la app.
+const DEAD_TOKEN = new Set([
+  'messaging/invalid-registration-token', 'messaging/registration-token-not-registered',
+  'messaging/mismatched-credential', 'messaging/invalid-argument',
+]);
 
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;

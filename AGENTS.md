@@ -64,7 +64,7 @@
 
 ## ⚠️ Boundaries and Constraints (Must Follow)
 - **Safari iOS PWA:** Push notifications only work after the user registers through a manual action (like the 🔔 button) and ONLY if installed on the home screen.
-- **VAPID Key:** Optional `NEXT_PUBLIC_FIREBASE_VAPID_KEY` = public key from Firebase Console → Cloud Messaging → Web Push certificates (falls back to Firebase's default key).
+- **VAPID Key:** None: `getToken` uses Firebase's default key. A custom one (`NEXT_PUBLIC_FIREBASE_VAPID_KEY`, removed) that didn't match the console pair made Apple reject every send (`messaging/mismatched-credential` / `invalid-argument`). `dryRun` does NOT detect this (it doesn't reach Apple); test with a real send.
 - **Firebase Admin:** `route.ts` uses `firebase-admin`, which is NOT compatible with edge runtime; keep it on nodejs runtime.
 - **Layout:** The root `main` is `fixed inset-0` (not `h-dvh`: in the iOS 26 PWA dvh keeps the old height after rotating landscape → portrait); `html, body` are `overflow: hidden`. `viewportFit: 'cover'` so the HUD pads with `env(safe-area-inset-*)` (notch in landscape, home indicator).
 - **Status bar:** `black-translucent` (transparent, the scene shows under the clock). iOS 26 lays its own edge blur there; no CSS/meta removes it, only an opaque bar (`'default'` was tried: it shows a black bar, rejected) or an opaque fixed box at the top edge (= solid band, rejected). The blur is tinted with the `html`/`body` background, so `PetScreen` sets `--scene-bg` (and theme-color for Android) to the color `StatusTint` (`World.tsx`) reads from the canvas under the clock every 1.5 s, matching the lit, tone-mapped sea. Changing the status bar style requires re-adding the PWA to the home screen.

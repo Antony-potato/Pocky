@@ -21,11 +21,9 @@ export async function requestNotificationPermission(): Promise<{ token: string }
     // SW propio sin SDK: muestra cada push él mismo (ver public/firebase-messaging-sw.js).
     const serviceWorkerRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
 
-    const token = await getToken(getMessaging(app), {
-      serviceWorkerRegistration,
-      // Clave de Firebase Console → Cloud Messaging → Certificados web push. Sin ella usa la de Firebase por defecto.
-      vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || undefined,
-    });
+    // ponytail: sin vapidKey → Firebase usa su clave por defecto y firma con su pareja. Una propia que no
+    // coincida con la de la consola hace que Apple rechace todos los envíos (mismatched-credential).
+    const token = await getToken(getMessaging(app), { serviceWorkerRegistration });
     return token ? { token } : { error: 'No se pudo obtener el token de notificaciones.' };
   } catch (e) {
     console.error('Error al activar notificaciones:', e);
