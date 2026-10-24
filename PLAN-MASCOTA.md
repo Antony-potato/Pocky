@@ -7,7 +7,7 @@
 > - se duerme solo a la 1:00 y se levanta a las 8:00;
 > - minijuego: lanzar la pelota en la isla.
 >
-> **Avance:** [x] 0 · [x] 1 (subidas juntas) · [x] 2 · [x] 3 · [x] 4 · [x] 5 · [ ] 6 · [ ] 7 · [ ] 8 · [ ] 9 · [ ] 10
+> **Avance:** [x] 0 · [x] 1 (subidas juntas) · [x] 2 · [x] 3 · [x] 4 · [x] 5 · [x] 6 · [ ] 7 · [ ] 8 · [ ] 9 · [ ] 10
 
 Lista pedida: silencio de noche, medicina con Pocky enfermo, historial, mimos, racha, cacas, accesorios,
 noche (se duerme solo y se levanta de malas), avisar al otro y minijuegos.

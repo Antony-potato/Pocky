@@ -25,6 +25,8 @@ export function getMood(s: PetData): PetMood {
 
 export function getNeeds(s: PetData): PetNeed[] {
   const needs: PetNeed[] = [];
+  if (s.health < SICK) // la primera: es la que dice en el bocadillo y la que se sugiere en el dock
+    needs.push({ id: 'medicine', emoji: '🤒', urgency: 'critical', message: `¡${s.name} está enfermo!` });
   if (s.hunger < 30)
     needs.push({ id: 'hunger', emoji: '🍖', urgency: s.hunger < 15 ? 'critical' : 'high', message: s.hunger < 15 ? `¡${s.name} está muy hambri@!` : `${s.name} quiere comer` });
   if (s.cleanliness < 30)
@@ -106,14 +108,20 @@ export function computeAge(createdAt: number, now = Date.now()): number {
   return Math.max(0, Math.round((day(now) - day(createdAt)) / 86400000));
 }
 
-export type PetAction = 'feed' | 'treat' | 'bathe' | 'walk' | 'play' | 'sleep' | 'wake' | 'cuddle';
+export type PetAction = 'feed' | 'treat' | 'bathe' | 'walk' | 'play' | 'medicine' | 'sleep' | 'wake' | 'cuddle';
 
 // Mimos (tocar a Pocky): +3 de felicidad, como mucho uno cada 30 s. No cuentan como cuidado (ni racha ni accesorios).
 export const CUDDLE_MS = 30000;
 const CUDDLE_GAIN = 3;
 
 type Stat = 'hunger' | 'happiness' | 'cleanliness' | 'energy' | 'health';
-type Effect = { activity: PetActivity; ms: number; full: Stat; gain: Partial<Record<Stat, number>>; minEnergy?: number };
+// fullAt: a partir de cuánto de `full` ya no quiere (por defecto FULL).
+type Effect = { activity: PetActivity; ms: number; full: Stat; gain: Partial<Record<Stat, number>>; minEnergy?: number; fullAt?: number };
+
+/** Salud por debajo de esto: enfermo (mocos, mareo, necesidad crítica). */
+export const SICK = 30;
+/** La medicina solo se puede dar (y el botón solo sale) con la salud por debajo de esto. */
+export const MEDICINE_BELOW = 50;
 
 // Cada acción dura `ms` y reparte `gain` poco a poco mientras dura (en applyTick), como dormir.
 // La golosina dura menos pero da más: cae del cielo y Pocky va a por ella.
@@ -123,6 +131,8 @@ const ACTIONS: Record<Exclude<PetAction, 'sleep' | 'wake' | 'cuddle'>, Effect> =
   bathe: { activity: 'bathing',  ms: 20000, full: 'cleanliness', gain: { cleanliness: 40, health: 5 } },
   walk:  { activity: 'walking',  ms: 25000, full: 'happiness',   gain: { happiness: 20, energy: -10, health: 5, hunger: -5 }, minEnergy: 15 },
   play:  { activity: 'playing',  ms: 20000, full: 'happiness',   gain: { happiness: 15, energy: -8, hunger: -5 }, minEnergy: 10 },
+  // Va al botiquín de la casa y se toma la medicina.
+  medicine: { activity: 'healing', ms: 20000, full: 'health',    gain: { health: 40 }, fullAt: MEDICINE_BELOW },
 };
 const EFFECT: Partial<Record<PetActivity, Effect>> = Object.fromEntries(Object.values(ACTIONS).map(e => [e.activity, e]));
 
@@ -134,7 +144,7 @@ export function refuses(s: PetData, a: PetAction): boolean {
   if (a === 'wake' || a === 'cuddle') return false;
   if (a === 'sleep') return s.energy >= FULL;
   const e = ACTIONS[a];
-  return s[e.full] >= FULL || s.energy < (e.minEnergy ?? 0);
+  return s[e.full] >= (e.fullAt ?? FULL) || s.energy < (e.minEnergy ?? 0);
 }
 
 const withMood = (s: PetData): PetData => ({ ...s, mood: getMood(s) });
@@ -167,7 +177,7 @@ function cared(s: PetData, now: number): Partial<PetData> {
 // ----- Avisar al otro: resumen de lo que hizo la pareja (lo manda el cron) -----
 const CARE_NOUN: Record<string, string> = {
   feed: 'comida 🍖', treat: 'golosina 🍬', bathe: 'baño 🛁', walk: 'paseo 🌳', play: 'juego 🎮',
-  sleep: 'a dormir 🌙', wake: 'despertar ☀️',
+  medicine: 'medicina 💊', sleep: 'a dormir 🌙', wake: 'despertar ☀️',
 };
 const list = (xs: string[]) => new Intl.ListFormat('es', { type: 'conjunction' }).format(xs); // "a, b y c"
 const PARTNER_EVERY = 30 * 60000; // como mucho un resumen cada 30 min por móvil

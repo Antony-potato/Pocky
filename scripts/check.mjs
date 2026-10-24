@@ -1,7 +1,7 @@
 // Checks mínimos de la lógica pura. Ejecutar: npm run check (Node >= 23, quita los tipos de .ts solo).
 import assert from 'node:assert/strict';
 import { NODES, findPath, nearestNode, WANDER, POI, TREAT_SPOTS } from '../src/components/scene/nav.ts';
-import { applyTick, applyAction, syncedFields, computeAge, currentStreak, partnerSummary, DEFAULT_PET, cancunHour, cancunDay, isQuietHour } from '../src/lib/petLogic.ts';
+import { applyTick, applyAction, getNeeds, syncedFields, computeAge, currentStreak, partnerSummary, DEFAULT_PET, cancunHour, cancunDay, isQuietHour } from '../src/lib/petLogic.ts';
 
 // Hora de Cancún (UTC−5 todo el año), da igual la zona del móvil o del servidor.
 const utc = (d, h, m = 0) => Date.UTC(2026, 9, d, h, m);
@@ -104,6 +104,17 @@ assert.equal(partnerSummary(couple, 'a2', t0 + 10 * M), null, 'ni lo de otro mó
 const told = { ...couple, devices: { ...couple.devices, b: { ...couple.devices.b, partnerSeen: t0 + 10 * M } } };
 assert.equal(partnerSummary({ ...told, log: [...told.log, { by: 'a', a: 'play', t: t0 + 12 * M }] }, 'b', t0 + 20 * M), null, 'como mucho un resumen cada 30 min');
 assert.equal(partnerSummary(couple, 'b', t0 + 7 * 60 * M), null, 'lo de hace más de 6 h ya no se cuenta');
+
+// Medicina: solo con la salud baja; cura poco a poco; enfermo = necesidad crítica (la primera).
+assert.equal(applyAction(base, 'medicine', t0), null, 'sano (salud 100): no quiere medicina');
+const ill = { ...base, health: 20 };
+assert.equal(getNeeds(ill)[0].id, 'medicine');
+assert.equal(getNeeds(ill)[0].urgency, 'critical');
+const healing = applyAction(ill, 'medicine', t0);
+assert.equal(healing.activity, 'healing');
+const healed = { ...healing, ...applyTick(healing, t0 + 20000) };
+assert.ok(healed.health > 59.9 && healed.health < 60.1, `20 s de medicina: +40 de salud, más lo poco que sube sola (dio ${healed.health})`);
+assert.equal(healed.activity, 'idle');
 
 // syncedFields: nunca escribe nombre, fecha de nacimiento ni tokens; sí la hora de fin de la acción.
 const fields = syncedFields({ ...fed, fcmTokens: ['x'] });

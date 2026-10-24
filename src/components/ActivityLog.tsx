@@ -10,6 +10,7 @@ const VERB: Record<string, [string, string, string]> = {
   bathe: ['🛁', 'bañó a', 'bañaste a'],
   walk: ['🌳', 'sacó a pasear a', 'sacaste a pasear a'],
   play: ['🎮', 'jugó con', 'jugaste con'],
+  medicine: ['💊', 'dio medicina a', 'diste medicina a'],
   sleep: ['🌙', 'acostó a', 'acostaste a'],
   wake: ['☀️', 'despertó a', 'despertaste a'],
   cuddle: ['❤️', 'dio mimos a', 'diste mimos a'],

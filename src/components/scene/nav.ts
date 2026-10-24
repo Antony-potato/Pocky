@@ -4,7 +4,7 @@ export type XZ = readonly [number, number];
 
 export const NODES = {
   s2: [-2.8, 6.0], s: [-1.8, 3.8], c: [0, -0.5], n: [0.5, -4.0], n2: [0.6, -6.2],
-  door: [-5.3, -0.9], garden: [-5.5, 1.4], meadow: [-4.5, 3.5],
+  door: [-5.3, -0.9], meds: [-4.38, -0.72], garden: [-5.5, 1.4], meadow: [-4.5, 3.5],
   field: [2.0, 0.6], bath: [1.9, 1.9], southR: [4.5, 5.6],
   picnic: [2.6, -2.4], play: [4.3, -0.2], fire: [5.1, -0.9], bed: [7.5, -0.4], bowl: [7.6, 0.8],
 } as const satisfies Record<string, XZ>;
@@ -12,7 +12,7 @@ export const NODES = {
 export type NodeId = keyof typeof NODES;
 
 export const EDGES: [NodeId, NodeId][] = [
-  ['s2', 's'], ['s', 'c'], ['c', 'n'], ['n', 'n2'], ['c', 'door'], ['door', 'garden'],
+  ['s2', 's'], ['s', 'c'], ['c', 'n'], ['n', 'n2'], ['c', 'door'], ['door', 'meds'], ['door', 'garden'],
   ['garden', 'meadow'], ['meadow', 's'], ['meadow', 'c'], ['s', 'field'], ['c', 'field'],
   ['field', 'bath'], ['s', 'southR'], ['c', 'picnic'], ['picnic', 'play'], ['field', 'play'],
   ['play', 'fire'], ['fire', 'bed'], ['bed', 'bowl'], ['play', 'bowl'],
@@ -24,6 +24,7 @@ export const POI = {
   bath: { node: 'bath', face: [3.8, 3.4] },
   play: { node: 'play', face: [4.3, 3] },
   sleep: { node: 'bed', face: [6.5, 1.5] },
+  heal: { node: 'meds', face: [-4.38, -1.62] }, // botiquín en la pared de la casa, a la derecha de la puerta
 } as const satisfies Record<string, { node: NodeId; face: XZ }>;
 
 // Claros donde puede caer una golosina: ≥1.4 libres de casa, estanque, árboles, vallas y borde de la isla

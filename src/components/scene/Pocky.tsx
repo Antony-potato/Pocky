@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import { usePetStore } from '@/store/petStore';
+import { SICK } from '@/lib/petLogic';
 import type { PetActivity, PetMood } from '@/types/pet';
 import { NODES, POI, TOUR, WANDER, TREAT_SPOTS, findPath, nearestNode, type NodeId, type XZ } from './nav';
 import { Part, toon, LINE } from './toon';
@@ -23,12 +24,13 @@ const MOOD_MSG: Record<PetMood, string> = {
 const FUR = '#efd6ab', PINK = '#efaab3';
 const DROP_H = 7, FALL = Math.sqrt((2 * DROP_H) / 18); // la golosina cae desde 7 de altura con gravedad 18
 
-type Pose = 'sit' | 'walk' | 'eat' | 'bath' | 'play' | 'sleep';
+type Pose = 'sit' | 'walk' | 'eat' | 'bath' | 'play' | 'heal' | 'sleep';
 // startAt: no empieza antes (p. ej. hasta que aterrice la golosina). endAt: cuando acaba la acción; hold = mínimo si llega tarde.
 type Goal = { pose: Pose; hold: number; face: XZ; until?: number; startAt?: number; endAt?: number };
-const TASKS: Partial<Record<PetActivity, keyof typeof POI>> = { eating: 'eat', bathing: 'bath', playing: 'play' };
+const TASKS: Partial<Record<PetActivity, keyof typeof POI>> = { eating: 'eat', bathing: 'bath', playing: 'play', healing: 'heal' };
 
 const SPHERE = new THREE.SphereGeometry(1, 24, 16);
+const BOX = new THREE.BoxGeometry(1, 1, 1);
 const LEG = new THREE.CapsuleGeometry(0.085, 0.2, 4, 10).translate(0, -0.185, 0); // pivote arriba
 const EAR = new THREE.ConeGeometry(1, 1, 16);
 const TAIL = new THREE.TubeGeometry(new THREE.CatmullRomCurve3([
@@ -49,6 +51,7 @@ export default function Pocky() {
   const isAsleep = usePetStore(s => s.isAsleep);
   const mood = usePetStore(s => s.mood);
   const need = usePetStore(s => s.needs[0]?.message); // si le falta algo, lo dice en el bocadillo
+  const sick = usePetStore(s => s.health < SICK);
   const clock = useThree(s => s.clock);
   const gl = useThree(s => s.gl);
   const [treatKind, setTreatKind] = useState<TreatKind | null>(null);
@@ -77,6 +80,9 @@ export default function Pocky() {
       line: new THREE.MeshBasicMaterial({ color: LINE }),
       white: new THREE.MeshBasicMaterial({ color: '#ffffff' }),
       bubble: new THREE.MeshStandardMaterial({ color: '#e6f7ff', transparent: true, opacity: 0.75 }),
+      snot: new THREE.MeshStandardMaterial({ color: '#d4f0c4', transparent: true, opacity: 0.7, roughness: 0.15 }),
+      cheek: new THREE.MeshBasicMaterial({ color: '#9ccc7a', transparent: true, opacity: 0.55 }),
+      cross: new THREE.MeshBasicMaterial({ color: '#ff5c7a' }),
     };
   }, []);
 
@@ -87,6 +93,9 @@ export default function Pocky() {
   const eyes = useRef<THREE.Group>(null!);
   const tail = useRef<THREE.Group>(null!);
   const bubbles = useRef<THREE.Group>(null!);
+  const crosses = useRef<THREE.Group>(null!);
+  const snot = useRef<THREE.Mesh>(null!);
+  const cheeks = useRef<THREE.Group>(null!);
   const legs = [useRef<THREE.Group>(null!), useRef<THREE.Group>(null!), useRef<THREE.Group>(null!), useRef<THREE.Group>(null!)]; // FL FR BL BR
 
   const treatRef = useRef<THREE.Group>(null!);
@@ -233,11 +242,25 @@ export default function Pocky() {
       rigY = j * 0.55; rigRY = Math.sin(t * 2.75) * 0.9;
       legR = [-0.9 * j, -0.9 * j, 0.5 * j, 0.5 * j];
       headRZ = Math.sin(t * 3) * 0.25; tailRZ = Math.sin(t * 10) * 0.5; tailRX = -0.4;
+    } else if (pose === 'heal') { // sentado ante el botiquín, mirando arriba, a por su medicina
+      bodyRX = -0.45; bodyY = 0.42;
+      legR = [0.25, 0.25, -1.4, -1.4]; legY = [0.36, 0.36, 0.14, 0.14];
+      headY = 1.0; headZ = 0.12; headRX = -0.3 + Math.sin(t * 3) * 0.05;
+      tailRX = -1.15; tailRZ = Math.sin(t * 2) * 0.3;
     } else if (pose === 'sleep') {
       rigY = 0.1; bodyY = 0.3; bodySY = 0.85 + Math.sin(t * 1.6) * 0.04;
       legR = [-1.45, -1.45, 1.45, 1.45]; legY = [0.12, 0.12, 0.12, 0.12];
       headY = 0.55; headZ = 0.34; headRX = 0.2; headRZ = 0.4; eyeS = 0.08;
       tailRX = -1.45; tailRZ = 0.9;
+    }
+
+    // Enfermo: mareado (cabeza y cuerpo se bambolean, ojos entornados) y un moco que se infla y revienta.
+    if (sick && pose !== 'sleep') { headRZ += Math.sin(t * 1.7) * 0.22; rigRZ += Math.sin(t * 1.1) * 0.06; eyeS = Math.min(eyeS, 0.45); }
+    snot.current.visible = cheeks.current.visible = sick;
+    if (sick) {
+      const s = 0.015 + 0.085 * ((t * 0.55) % 1) ** 1.6;
+      snot.current.scale.setScalar(s);
+      snot.current.position.set(0.045, -0.14 - s * 0.6, 0.43 + s * 0.5); // cuelga de la nariz al crecer
     }
 
     const k = (v: number, target: number, l = 10) => THREE.MathUtils.damp(v, target, l, dt);
@@ -267,6 +290,12 @@ export default function Pocky() {
       const u = (t * 0.7 + i / 6) % 1, a = i * 1.05 + t * 1.5;
       m.position.set(Math.cos(a) * 0.55, 0.3 + u * 1.3, Math.sin(a) * 0.55);
       m.scale.setScalar(0.05 + 0.05 * Math.sin(u * Math.PI));
+    });
+    crosses.current.visible = pose === 'heal';
+    if (pose === 'heal') crosses.current.children.forEach((m, i) => {
+      const u = (t * 0.5 + i / 4) % 1, a = i * 1.57 + t * 0.8;
+      m.position.set(Math.cos(a) * 0.6, 0.6 + u * 1.4, Math.sin(a) * 0.6);
+      m.scale.setScalar(Math.sin(u * Math.PI));
     });
   });
 
@@ -323,6 +352,11 @@ export default function Pocky() {
           </group>
           <mesh geometry={SPHERE} material={mat.line} position={[0, -0.13, 0.405]} scale={[0.045, 0.03, 0.025]} />
           <mesh material={mat.line} position={[0, -0.19, 0.385]}><boxGeometry args={[0.014, 0.07, 0.01]} /></mesh>
+          {/* enfermo: moco y mejillas verdosas (se encienden en useFrame) */}
+          <mesh ref={snot} geometry={SPHERE} material={mat.snot} visible={false} />
+          <group ref={cheeks} visible={false}>
+            {[-1, 1].map(s => <mesh key={s} geometry={SPHERE} material={mat.cheek} position={[0.3 * s, -0.11, 0.32]} scale={[0.085, 0.05, 0.04]} />)}
+          </group>
         </group>
 
         {([[-0.15, 0.2], [0.15, 0.2], [-0.16, -0.2], [0.16, -0.2]] as const).map(([x, z], i) => (
@@ -338,6 +372,15 @@ export default function Pocky() {
 
         <group ref={bubbles} visible={false}>
           {Array.from({ length: 6 }, (_, i) => <mesh key={i} geometry={SPHERE} material={mat.bubble} />)}
+        </group>
+        {/* curándose: cruces rojas que suben a su alrededor */}
+        <group ref={crosses} visible={false}>
+          {Array.from({ length: 4 }, (_, i) => (
+            <group key={i}>
+              <mesh geometry={BOX} material={mat.cross} scale={[0.16, 0.05, 0.05]} />
+              <mesh geometry={BOX} material={mat.cross} scale={[0.05, 0.16, 0.05]} />
+            </group>
+          ))}
         </group>
       </group>
     </group>

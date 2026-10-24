@@ -6,8 +6,8 @@ import CircularStats, { HUD_DARK, PILL } from './CircularStats';
 import ActivityLog from './ActivityLog';
 import Splash from './Splash';
 import { requestNotificationPermission } from '@/lib/messaging';
-import { computeAge, currentStreak, refuses, type PetAction } from '@/lib/petLogic';
-import { Utensils, Candy, ShowerHead, TreePine, Gamepad2, Moon, Sun, Bell, PawPrint, WifiOff, Wifi, Flame, History as HistoryIcon, type LucideIcon } from 'lucide-react';
+import { computeAge, currentStreak, refuses, MEDICINE_BELOW, type PetAction } from '@/lib/petLogic';
+import { Utensils, Candy, ShowerHead, TreePine, Gamepad2, Pill, Moon, Sun, Bell, PawPrint, WifiOff, Wifi, Flame, History as HistoryIcon, type LucideIcon } from 'lucide-react';
 
 // Three.js solo en el cliente (usa WebGL y window). Mientras carga, la tapa el Splash.
 const World = dynamic(() => import('./scene/World'), { ssr: false });
@@ -21,7 +21,7 @@ function iconColors(style: IconStyle, color: string, active: boolean) {
 }
 
 // Necesidad → acción que se sugiere (se destaca en el dock).
-const SUGGEST: Record<string, string> = { hunger: 'feed', bath: 'bathe', play: 'play', sleep: 'sleep' };
+const SUGGEST: Record<string, string> = { medicine: 'medicine', hunger: 'feed', bath: 'bathe', play: 'play', sleep: 'sleep' };
 
 // Tamaños fluidos: se adaptan del móvil más pequeño (320px) al escritorio, también en horizontal.
 const SIZES = {
@@ -29,6 +29,8 @@ const SIZES = {
   '--ring': 'clamp(1.75rem, 5.2svh, 2.5rem)',
   '--gap': 'clamp(0.3rem, 1.6vw, 0.6rem)',
 } as React.CSSProperties;
+// Con 7 botones (medicina) más pequeños: si no, en 320-390 px el dock se sale de la pantalla.
+const SIZES_7 = { '--btn': 'clamp(2.2rem, min(11vw, 9svh), 3.5rem)' } as React.CSSProperties;
 
 export default function PetScreen() {
   const pet = usePetStore();
@@ -122,6 +124,9 @@ export default function PetScreen() {
     { id: 'bathe', activityId: 'bathing', Icon: ShowerHead, style: 'line', color: '#38bdf8', label: 'Bañar' },
     { id: 'walk', activityId: 'walking', Icon: TreePine, style: 'solid', color: '#34d399', label: 'Pasear' },
     { id: 'play', activityId: 'playing', Icon: Gamepad2, style: 'cutout', color: '#c084fc', label: 'Jugar' },
+    // Solo cuando le hace falta (o mientras se la toma): el resto del tiempo el dock se queda en 6.
+    ...(pet.health < MEDICINE_BELOW || pet.activity === 'healing'
+      ? [{ id: 'medicine', activityId: 'healing', Icon: Pill, style: 'line', color: '#f87171', label: 'Medicina' } as const] : []),
     pet.isAsleep
       ? { id: 'wake', activityId: 'sleeping', Icon: Sun, style: 'solid', color: '#fbbf24', label: 'Despertar' }
       : { id: 'sleep', activityId: 'sleeping', Icon: Moon, style: 'solid', color: '#8b9cff', label: 'Dormir' },
@@ -138,7 +143,7 @@ export default function PetScreen() {
 
   return (
     // fixed inset-0, no h-dvh: en la PWA de iOS 26 dvh se queda con la altura vieja al girar horizontal → vertical.
-    <main className="fixed inset-0 overflow-hidden bg-[#151a19] font-nunito select-none" style={SIZES}>
+    <main className="fixed inset-0 overflow-hidden bg-[#151a19] font-nunito select-none" style={actions.length > 6 ? { ...SIZES, ...SIZES_7 } : SIZES}>
       {/* ===== ESCENA 3D (fondo a pantalla completa, también bajo la barra de estado) ===== */}
       <div className="absolute inset-0 z-0">{isMounted && <World hour={hour} onReady={onWorldReady} onTint={splash ? undefined : paintStatusBar} />}</div>
 

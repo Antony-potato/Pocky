@@ -717,6 +717,14 @@ function House({ glow }: { glow: number }) {
         <mesh position-y={0.18} rotation-y={Math.PI / 4}><coneGeometry args={[0.16, 0.13, 4]} /><meshStandardMaterial color="#4a3a30" /></mesh>
         <mesh position-y={-0.14} scale={[0.2, 0.04, 0.2]} geometry={BOX}><meshStandardMaterial color="#4a3a30" /></mesh>
       </group>
+      {/* botiquín entre la puerta y la esquina, bajo el farol: Pocky viene aquí a por su medicina (POI 'heal') */}
+      <group position={[1.12, 0.8, 1.38]}>
+        <RBox args={[0.42, 0.5, 0.16]} radius={0.04} castShadow><meshStandardMaterial color="#f6f2ea" roughness={0.6} /></RBox>
+        <mesh position-z={0.082} scale={[0.24, 0.075, 0.012]} geometry={BOX}><meshStandardMaterial color="#e5484d" roughness={0.5} /></mesh>
+        <mesh position-z={0.082} scale={[0.075, 0.24, 0.012]} geometry={BOX}><meshStandardMaterial color="#e5484d" roughness={0.5} /></mesh>
+        <mesh position={[0.17, 0, 0.085]} scale={0.022} geometry={SPHERE}><meshStandardMaterial color="#c9c2b6" /></mesh>
+        <mesh position-y={0.28} scale={[0.48, 0.05, 0.2]} geometry={BOX} castShadow><meshStandardMaterial color={C.wood} roughness={0.85} /></mesh>
+      </group>
       <pointLight position={[0.6, 1.4, 2.0]} color="#ffb357" intensity={glow * 3} distance={5} decay={1.5} />
       {/* hiedra */}
       <Scatter geo={IVY} mat={MAT.vcol} shadow={false} items={[[-1.36, 2.15, 1.3, 1.1, 0], [-1.42, 1.5, 1.3, 0.75, 0], [1.38, 2.15, 1.3, 1, 0], [-0.25, 2.18, 1.3, 0.7, 0], [1.5, 2.1, 1.0, 1, Math.PI / 2], [-1.5, 2.12, -0.75, 0.9, -Math.PI / 2]]

@@ -70,6 +70,9 @@ async function commit(change: (server: PetData) => PetData | null, logAs?: strin
   }
 }
 
+// Solo en desarrollo: el store a mano desde la consola (window.pocky.setState({ health: 20 })) y en las capturas.
+if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined') queueMicrotask(() => Object.assign(window, { pocky: usePetStore }));
+
 export const usePetStore = create<PetStore>((set, get) => {
   // Si el servidor rechaza la acción (p. ej. tu pareja hizo otra a la vez), vuelve al estado real.
   const save = (change: (server: PetData) => PetData | null, logAs?: string) => {
