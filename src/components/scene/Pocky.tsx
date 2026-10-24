@@ -19,7 +19,10 @@ const MOOD_MSG: Record<PetMood, string> = {
   sad: 'Me siento un poco triste...',
   sick: 'No me siento muy bien...',
   sleeping: 'Zzz...',
+  grumpy: 'Hmpf... 😾',
 };
+// De malas por la noche: se queja de lo que le pasó (va antes que las necesidades en el bocadillo).
+const GRUMPY_MSG = { alone: '¡Nadie me acostó! Dormí fatal 😾', woken: '¡Me despertaron! 😾' };
 
 const FUR = '#efd6ab', PINK = '#efaab3';
 const DROP_H = 7, FALL = Math.sqrt((2 * DROP_H) / 18); // la golosina cae desde 7 de altura con gravedad 18
@@ -52,6 +55,7 @@ export default function Pocky() {
   const mood = usePetStore(s => s.mood);
   const need = usePetStore(s => s.needs[0]?.message); // si le falta algo, lo dice en el bocadillo
   const sick = usePetStore(s => s.health < SICK);
+  const grumpyWhy = usePetStore(s => s.mood === 'grumpy' ? s.grumpyWhy || 'alone' : null);
   const clock = useThree(s => s.clock);
   const gl = useThree(s => s.gl);
   const [treatKind, setTreatKind] = useState<TreatKind | null>(null);
@@ -70,8 +74,9 @@ export default function Pocky() {
     return () => ui.anchor.remove();
   }, [gl, ui]);
   useEffect(() => {
-    ui.bubble.textContent = treatKind ? `¡Mmm, ${TREAT_NAME[treatKind]}!` : (!isAsleep && need) || (MOOD_MSG[mood] ?? '...');
-  }, [mood, need, isAsleep, treatKind, ui]);
+    ui.bubble.textContent = treatKind ? `¡Mmm, ${TREAT_NAME[treatKind]}!`
+      : grumpyWhy ? GRUMPY_MSG[grumpyWhy] : (!isAsleep && need) || (MOOD_MSG[mood] ?? '...');
+  }, [mood, need, isAsleep, treatKind, grumpyWhy, ui]);
 
   const mat = useMemo(() => {
     return {
@@ -96,6 +101,7 @@ export default function Pocky() {
   const crosses = useRef<THREE.Group>(null!);
   const snot = useRef<THREE.Mesh>(null!);
   const cheeks = useRef<THREE.Group>(null!);
+  const brows = useRef<THREE.Group>(null!);
   const legs = [useRef<THREE.Group>(null!), useRef<THREE.Group>(null!), useRef<THREE.Group>(null!), useRef<THREE.Group>(null!)]; // FL FR BL BR
 
   const treatRef = useRef<THREE.Group>(null!);
@@ -257,6 +263,9 @@ export default function Pocky() {
     // Enfermo: mareado (cabeza y cuerpo se bambolean, ojos entornados) y un moco que se infla y revienta.
     if (sick && pose !== 'sleep') { headRZ += Math.sin(t * 1.7) * 0.22; rigRZ += Math.sin(t * 1.1) * 0.06; eyeS = Math.min(eyeS, 0.45); }
     snot.current.visible = cheeks.current.visible = sick;
+    // De malas: cejas fruncidas, ojos entornados y la cola dando latigazos.
+    brows.current.visible = !!grumpyWhy && pose !== 'sleep';
+    if (brows.current.visible) { eyeS = Math.min(eyeS, 0.6); tailRX = -0.5; tailRZ = Math.sin(t * 8) * 0.5; }
     if (sick) {
       const s = 0.015 + 0.085 * ((t * 0.55) % 1) ** 1.6;
       snot.current.scale.setScalar(s);
@@ -354,6 +363,9 @@ export default function Pocky() {
           <mesh material={mat.line} position={[0, -0.19, 0.385]}><boxGeometry args={[0.014, 0.07, 0.01]} /></mesh>
           {/* enfermo: moco y mejillas verdosas (se encienden en useFrame) */}
           <mesh ref={snot} geometry={SPHERE} material={mat.snot} visible={false} />
+          <group ref={brows} visible={false}>
+            {[-1, 1].map(s => <mesh key={s} geometry={BOX} material={mat.line} position={[0.18 * s, 0.2, 0.35]} rotation-z={0.45 * s} scale={[0.15, 0.035, 0.03]} />)}
+          </group>
           <group ref={cheeks} visible={false}>
             {[-1, 1].map(s => <mesh key={s} geometry={SPHERE} material={mat.cheek} position={[0.3 * s, -0.11, 0.32]} scale={[0.085, 0.05, 0.04]} />)}
           </group>

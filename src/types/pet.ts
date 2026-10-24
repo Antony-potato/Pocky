@@ -1,5 +1,5 @@
 export type PetSpecies  = 'cat' | 'dog' | 'bunny' | 'hamster';
-export type PetMood     = 'happy' | 'neutral' | 'sad' | 'sick' | 'sleeping' | 'excited';
+export type PetMood     = 'happy' | 'neutral' | 'sad' | 'sick' | 'sleeping' | 'excited' | 'grumpy';
 export type PetActivity = 'idle' | 'eating' | 'snacking' | 'bathing' | 'walking' | 'playing' | 'healing' | 'sleeping';
 
 export interface PetNeed {
@@ -30,6 +30,9 @@ export interface PetData {
   streak?:              number;   // días seguidos con al menos un cuidado…
   streakDay?:           string;   // …y el último de ellos ('2026-10-24', hora de Cancún)
   streakWarned?:        string;   // día en que el cron ya avisó de que se pierde la racha
+  sleptAlone?:          boolean;  // se durmió solo de madrugada (nadie lo acostó)…
+  grumpyUntil?:         number;   // …y se levanta de malas hasta entonces (o hasta un mimo)
+  grumpyWhy?:           '' | 'alone' | 'woken'; // por qué: se durmió solo / lo despertaron de noche
   lastSyncedBy:         string;
   fcmTokens?:           string[]; // Tokens FCM antiguos, sin dueño (los nuevos van en `devices`)
   devices?:             Record<string, Device>; // cada móvil, por su deviceId

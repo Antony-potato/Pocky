@@ -1,7 +1,7 @@
 // Checks mínimos de la lógica pura. Ejecutar: npm run check (Node >= 23, quita los tipos de .ts solo).
 import assert from 'node:assert/strict';
 import { NODES, findPath, nearestNode, WANDER, POI, TREAT_SPOTS } from '../src/components/scene/nav.ts';
-import { applyTick, applyAction, getNeeds, syncedFields, computeAge, currentStreak, partnerSummary, DEFAULT_PET, cancunHour, cancunDay, isQuietHour } from '../src/lib/petLogic.ts';
+import { applyTick, applyAction, getNeeds, clamp, syncedFields, computeAge, currentStreak, partnerSummary, DEFAULT_PET, cancunHour, cancunDay, isQuietHour } from '../src/lib/petLogic.ts';
 
 // Hora de Cancún (UTC−5 todo el año), da igual la zona del móvil o del servidor.
 const utc = (d, h, m = 0) => Date.UTC(2026, 9, d, h, m);
@@ -29,7 +29,7 @@ for (const id of TREAT_SPOTS) {
 }
 
 // applyTick: una actividad atascada (app cerrada a mitad de acción) vuelve a 'idle'.
-const t0 = Date.now();
+const t0 = utc(24, 17); // mediodía en Cancún: que no se metan las reglas de noche
 const stuck = applyTick({ ...DEFAULT_PET, activity: 'eating', lastUpdated: t0 - 5 * 60000 }, t0);
 assert.equal(stuck.activity, 'idle');
 
@@ -86,7 +86,7 @@ const s1 = applyAction(day1, 'feed', utc(24, 15));
 assert.deepEqual([s1.streak, s1.streakDay], [1, '2026-10-24']);
 const s1b = applyAction({ ...s1, activity: 'idle' }, 'bathe', utc(25, 4));               // 23:00 del mismo día
 assert.equal(s1b.streak, 1, 'el mismo día no suma');
-const s2 = applyAction({ ...s1b, activity: 'idle' }, 'feed', utc(25, 6));                // 01:00 del 25 (sin energía para jugar)
+const s2 = applyAction({ ...s1b, activity: 'idle' }, 'feed', utc(25, 14));               // 9:00 del 25 (a la 1:00 ya se habría dormido solo)
 assert.equal(s2.streak, 2, 'día siguiente: +1');
 assert.equal(currentStreak(s2, utc(26, 20)), 2, 'al día siguiente aún se ve (hay tiempo para cuidarlo)');
 assert.equal(currentStreak(s2, utc(27, 6)), 0, 'un día entero sin cuidados: perdida');
@@ -115,6 +115,27 @@ assert.equal(healing.activity, 'healing');
 const healed = { ...healing, ...applyTick(healing, t0 + 20000) };
 assert.ok(healed.health > 59.9 && healed.health < 60.1, `20 s de medicina: +40 de salud, más lo poco que sube sola (dio ${healed.health})`);
 assert.equal(healed.activity, 'idle');
+
+// Noche (Cancún): a la 1:00 se duerme solo; de noche no se despierta; a las 8 se levanta de malas si nadie lo acostó.
+const awake = { ...base, energy: 50, lastUpdated: utc(25, 5, 45) };                       // 0:45
+assert.equal(applyTick(awake, utc(25, 5, 59)).isAsleep, false, 'a las 0:59 aún no');
+const alone = { ...awake, ...applyTick(awake, utc(25, 6)) };                               // 1:00
+assert.ok(alone.isAsleep && alone.sleptAlone, 'a la 1:00 se duerme solo');
+const at7 = { ...alone, ...applyTick(alone, utc(25, 12)) };                                // 7:00, energía llena
+assert.ok(at7.isAsleep && at7.energy === 100, 'de noche no se despierta aunque tenga la energía llena');
+const morning = { ...at7, ...applyTick(at7, utc(25, 13)) };                                // 8:00
+assert.equal(morning.isAsleep, false);
+assert.equal(morning.mood, 'grumpy', 'se durmió solo: se levanta de malas');
+assert.equal(morning.grumpyWhy, 'alone');
+assert.equal(morning.happiness, clamp(at7.happiness - 15));
+assert.notEqual(applyAction(morning, 'cuddle', utc(25, 13, 5)).mood, 'grumpy', 'un mimo se lo quita');
+const tucked = applyAction({ ...awake, lastUpdated: utc(25, 4) }, 'sleep', utc(25, 4));     // acostado a las 23:00
+const tuckedMorning = { ...tucked, ...applyTick({ ...tucked, ...applyTick(tucked, utc(25, 12)) }, utc(25, 13)) };
+assert.ok(!tuckedMorning.isAsleep && tuckedMorning.mood !== 'grumpy', 'si lo acostaron, a las 8 se levanta bien');
+assert.equal(applyAction({ ...base, energy: 95, lastUpdated: utc(25, 4) }, 'sleep', utc(25, 4)).isAsleep, true, 'de noche se le puede acostar aunque no tenga sueño');
+const woken = applyAction(at7, 'wake', utc(25, 12));
+assert.deepEqual([woken.mood, woken.grumpyWhy], ['grumpy', 'woken'], 'despertarlo de noche: de malas');
+assert.equal(applyTick(woken, utc(25, 12, 15)).isAsleep, false, 'desvelado: no se vuelve a dormir solo enseguida');
 
 // syncedFields: nunca escribe nombre, fecha de nacimiento ni tokens; sí la hora de fin de la acción.
 const fields = syncedFields({ ...fed, fcmTokens: ['x'] });

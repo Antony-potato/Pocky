@@ -88,6 +88,10 @@ export async function GET(req: NextRequest) {
       update.lastNotificationSent = now;
     }
 
+    // Se levantó de malas porque nadie lo acostó (lo despierta este tick, a las 8): a los dos.
+    if (changes.grumpyWhy === 'alone' && !isQuietHour(now))
+      await send(everyone, { title: `😾 ${pet.name} se levantó de malas`, body: 'Nadie lo acostó anoche y durmió fatal. ¡Dale unos mimos!', tag: 'malas' }, 3 * HOUR);
+
     // Racha en peligro: desde las 20:00 (Cancún), si nadie lo ha cuidado hoy y la racha es de 2+ días. Una vez al día.
     const today = cancunDay(now), streak = currentStreak(pet, now);
     if (streak >= 2 && pet.streakDay !== today && pet.streakWarned !== today && cancunHour(now) >= 20 && !isQuietHour(now)) {

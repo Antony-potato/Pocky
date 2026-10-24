@@ -12,10 +12,17 @@ export const cancunHour = (now = Date.now()) => Number(HOUR_FMT.format(now));
 export const cancunDay = (now = Date.now()) => DAY_FMT.format(now); // '2026-10-24'
 /** Silencio de notificaciones: de 23:00 a 8:00 (Cancún). */
 export const isQuietHour = (now = Date.now()) => { const h = cancunHour(now); return h >= 23 || h < 8; };
+/** Noche (22:00–8:00): dormido no se despierta solo al llenar la energía, duerme hasta las 8. */
+export const isNight = (now = Date.now()) => { const h = cancunHour(now); return h >= 22 || h < 8; };
+/** Muy tarde (1:00–8:00): si nadie lo ha acostado, se duerme solo… y se levanta de malas. */
+export const isVeryLate = (now = Date.now()) => { const h = cancunHour(now); return h >= 1 && h < 8; };
+const GRUMPY_MS = 3 * 3600000; // de malas: hasta un mimo, o 3 h
+const GRUMPY_HAPPINESS = 15;
 
-export function getMood(s: PetData): PetMood {
+export function getMood(s: PetData, now = Date.now()): PetMood {
   if (s.isAsleep) return 'sleeping';
   if (s.health < 30) return 'sick';
+  if ((s.grumpyUntil ?? 0) > now) return 'grumpy';
   const avg = (s.hunger + s.happiness + s.cleanliness + s.energy) / 4;
   if (avg >= 80) return 'happy';
   if (avg >= 60) return 'neutral';
@@ -23,7 +30,7 @@ export function getMood(s: PetData): PetMood {
   return 'sick';
 }
 
-export function getNeeds(s: PetData): PetNeed[] {
+export function getNeeds(s: PetData, now = Date.now()): PetNeed[] {
   const needs: PetNeed[] = [];
   if (s.health < SICK) // la primera: es la que dice en el bocadillo y la que se sugiere en el dock
     needs.push({ id: 'medicine', emoji: '🤒', urgency: 'critical', message: `¡${s.name} está enfermo!` });
@@ -33,7 +40,9 @@ export function getNeeds(s: PetData): PetNeed[] {
     needs.push({ id: 'bath', emoji: '🛁', urgency: s.cleanliness < 15 ? 'critical' : 'high', message: `${s.name} necesita baño` });
   if (s.happiness < 30)
     needs.push({ id: 'play', emoji: '🎾', urgency: 'high', message: `${s.name} está aburrido/a` });
-  if (s.energy < 20 && !s.isAsleep)
+  if (!s.isAsleep && isNight(now)) // aviso a las 22:00: si a la 1 sigue despierto, mañana se levanta de malas
+    needs.push({ id: 'sleep', emoji: '🌙', urgency: 'high', message: `${s.name} tiene sueño, ya es tarde` });
+  else if (s.energy < 20 && !s.isAsleep)
     needs.push({ id: 'sleep', emoji: '😴', urgency: 'high', message: `${s.name} tiene sueño` });
   return needs;
 }
@@ -68,19 +77,28 @@ export function applyTick(s: PetData, now = Date.now()): Partial<PetData> {
     health = clamp(health + (g.health ?? 0) * f);
   }
 
+  // Noche: muy tarde y despierto → se duerme solo (salvo si lo acaban de despertar: está de malas, desvelado).
+  // Dormido de noche no se despierta hasta las 8.
+  const fellAlone = !s.isAsleep && isVeryLate(now) && !((s.grumpyUntil ?? 0) > now);
+  const isAsleep = fellAlone || (s.isAsleep && (energy < 95 || isNight(now)));
+  // Se despierta tras dormirse solo: dormió fatal → de malas (se queja hasta un mimo o 3 h).
+  const wokeGrumpy = s.isAsleep && !isAsleep && !!s.sleptAlone;
+  if (wokeGrumpy) happiness = clamp(happiness - GRUMPY_HAPPINESS);
+
   const lowCount = [hunger, happiness, cleanliness].filter(v => v < 20).length;
   health = lowCount >= 2
     ? clamp(health - mins * 0.5)
     : clamp(health + mins * 0.1);
 
-  const isAsleep = s.isAsleep && energy < 95;
-  const next = { ...s, hunger, happiness, cleanliness, energy, health, isAsleep };
+  const night: Partial<PetData> = fellAlone ? { sleptAlone: true }
+    : wokeGrumpy ? { sleptAlone: false, grumpyUntil: now + GRUMPY_MS, grumpyWhy: 'alone' } : {};
+  const next = { ...s, hunger, happiness, cleanliness, energy, health, isAsleep, ...night };
   return {
-    hunger, happiness, cleanliness, energy, health, isAsleep,
+    hunger, happiness, cleanliness, energy, health, isAsleep, ...night,
     lastUpdated: now,
     // La acción termina sola a su hora (también si se cerró la app a mitad): nadie tiene que cerrarla.
     activity: isAsleep ? 'sleeping' : now < until ? s.activity : 'idle',
-    mood: getMood(next),
+    mood: getMood(next, now),
   };
 }
 
@@ -140,14 +158,14 @@ const EFFECT: Partial<Record<PetActivity, Effect>> = Object.fromEntries(Object.v
 export const FULL = 90;
 
 /** No quiere hacerlo: ya está lleno de eso, o no tiene energía para moverse. */
-export function refuses(s: PetData, a: PetAction): boolean {
+export function refuses(s: PetData, a: PetAction, now = Date.now()): boolean {
   if (a === 'wake' || a === 'cuddle') return false;
-  if (a === 'sleep') return s.energy >= FULL;
+  if (a === 'sleep') return s.energy >= FULL && !isNight(now); // de noche siempre se puede acostar
   const e = ACTIONS[a];
   return s[e.full] >= (e.fullAt ?? FULL) || s.energy < (e.minEnergy ?? 0);
 }
 
-const withMood = (s: PetData): PetData => ({ ...s, mood: getMood(s) });
+const withMood = (s: PetData, now: number): PetData => ({ ...s, mood: getMood(s, now) });
 
 /**
  * Aplica una acción sobre el estado, descontando antes el tiempo transcurrido. null = ahora no se puede.
@@ -157,14 +175,18 @@ const withMood = (s: PetData): PetData => ({ ...s, mood: getMood(s) });
 export function applyAction(s: PetData, a: PetAction, now = Date.now()): PetData | null {
   const r: PetData = { ...s, ...applyTick(s, now), lastUpdated: now };
   // Despertar no regala energía: la que tiene es la que recuperó durmiendo (antes +30: dormir/despertar llenaba la barra).
-  if (a === 'wake') return r.isAsleep ? withMood({ ...r, isAsleep: false, activity: 'idle' }) : null;
-  // Mimos: también mientras hace otra cosa (no la interrumpen); dormido no se entera.
+  // De noche, despertarlo lo pone de malas ("¡Me despertaron!").
+  if (a === 'wake') return !r.isAsleep ? null : withMood({
+    ...r, isAsleep: false, activity: 'idle', sleptAlone: false,
+    ...(isNight(now) && { grumpyUntil: now + GRUMPY_MS, grumpyWhy: 'woken' as const }),
+  }, now);
+  // Mimos: también mientras hace otra cosa (no la interrumpen); dormido no se entera. Se le pasa lo de malas.
   if (a === 'cuddle') return r.isAsleep || now - (r.lastCuddle ?? 0) < CUDDLE_MS ? null
-    : withMood({ ...r, happiness: clamp(r.happiness + CUDDLE_GAIN), lastCuddle: now });
-  if (r.isAsleep || r.activity !== 'idle' || refuses(r, a)) return null;
-  if (a === 'sleep') return withMood({ ...r, isAsleep: true, activity: 'sleeping' });
+    : withMood({ ...r, happiness: clamp(r.happiness + CUDDLE_GAIN), lastCuddle: now, grumpyUntil: 0 }, now);
+  if (r.isAsleep || r.activity !== 'idle' || refuses(r, a, now)) return null;
+  if (a === 'sleep') return withMood({ ...r, isAsleep: true, activity: 'sleeping', sleptAlone: false }, now);
   const e = ACTIONS[a];
-  return withMood({ ...r, ...cared(r, now), activity: e.activity, activityUntil: now + e.ms });
+  return withMood({ ...r, ...cared(r, now), activity: e.activity, activityUntil: now + e.ms }, now);
 }
 
 /** Un cuidado de verdad (no mimos ni dormir): suma al contador y a la racha. */
@@ -203,10 +225,12 @@ export function currentStreak(s: PetData, now = Date.now()): number {
 
 /** Campos que escriben los clientes. Nunca nombre, createdAt ni tokens (así no se pisan entre móviles). */
 export function syncedFields(s: PetData) {
-  const { hunger, happiness, cleanliness, energy, health, mood, activity, isAsleep, lastUpdated, totalCaresGiven, activityUntil, lastCuddle, streak, streakDay } = s;
+  const { hunger, happiness, cleanliness, energy, health, mood, activity, isAsleep, lastUpdated, totalCaresGiven, activityUntil, lastCuddle, streak, streakDay,
+    sleptAlone, grumpyUntil, grumpyWhy } = s;
   return {
     hunger, happiness, cleanliness, energy, health, mood, activity, isAsleep, lastUpdated,
     totalCaresGiven: totalCaresGiven ?? 0, activityUntil: activityUntil ?? 0, lastCuddle: lastCuddle ?? 0,
     streak: streak ?? 0, streakDay: streakDay ?? '',
+    sleptAlone: sleptAlone ?? false, grumpyUntil: grumpyUntil ?? 0, grumpyWhy: grumpyWhy ?? '',
   };
 }
