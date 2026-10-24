@@ -34,6 +34,7 @@ export interface PetData {
   grumpyUntil?:         number;   // …y se levanta de malas hasta entonces (o hasta un mimo)
   grumpyWhy?:           '' | 'alone' | 'woken'; // por qué: se durmió solo / lo despertaron de noche
   poops?:               { at: number; spot: number }[]; // cacas: aparecen en `at`, en el sitio POOP_XZ[spot]
+  outfit?:              { head?: string; neck?: string; face?: string }; // accesorio puesto en cada hueco ('' = nada)
   lastSyncedBy:         string;
   fcmTokens?:           string[]; // Tokens FCM antiguos, sin dueño (los nuevos van en `devices`)
   devices?:             Record<string, Device>; // cada móvil, por su deviceId

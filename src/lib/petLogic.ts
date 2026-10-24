@@ -49,6 +49,19 @@ export function getNeeds(s: PetData, now = Date.now()): PetNeed[] {
   return needs;
 }
 
+// ----- Accesorios: se desbloquean con cuidados (sin moneda); uno por hueco, los dos móviles ven el mismo -----
+export type Slot = 'head' | 'neck' | 'face';
+export const ACCESSORIES: readonly { id: string; name: string; emoji: string; slot: Slot; cares: number }[] = [
+  { id: 'bow', name: 'Moño', emoji: '🎀', slot: 'head', cares: 10 },
+  { id: 'bell', name: 'Collar con cascabel', emoji: '🔔', slot: 'neck', cares: 25 },
+  { id: 'beanie', name: 'Gorro de lana', emoji: '🧶', slot: 'head', cares: 50 },
+  { id: 'glasses', name: 'Lentes', emoji: '👓', slot: 'face', cares: 80 },
+  { id: 'scarf', name: 'Bufanda', emoji: '🧣', slot: 'neck', cares: 120 },
+  { id: 'strawhat', name: 'Sombrero de paja', emoji: '👒', slot: 'head', cares: 180 },
+  { id: 'flower', name: 'Flor', emoji: '🌼', slot: 'head', cares: 250 },
+  { id: 'crown', name: 'Corona', emoji: '👑', slot: 'head', cares: 365 },
+];
+
 // ----- Cacas: cada comida programa una 2 h después (máx. 3 en la isla); se limpian tocándolas -----
 export const POOP_SPOTS = 5; // sitios: POOP_XZ en nav.ts
 const POOP_AFTER = 2 * 3600000, POOP_MAX = 3;
@@ -144,7 +157,7 @@ export function computeAge(createdAt: number, now = Date.now()): number {
   return Math.max(0, Math.round((day(now) - day(createdAt)) / 86400000));
 }
 
-export type PetAction = 'feed' | 'treat' | 'bathe' | 'walk' | 'play' | 'medicine' | 'sleep' | 'wake' | 'cuddle' | 'clean';
+export type PetAction = 'feed' | 'treat' | 'bathe' | 'walk' | 'play' | 'medicine' | 'sleep' | 'wake' | 'cuddle' | 'clean' | 'wear';
 
 // Mimos (tocar a Pocky): +3 de felicidad, como mucho uno cada 30 s. No cuentan como cuidado (ni racha ni accesorios).
 export const CUDDLE_MS = 30000;
@@ -161,7 +174,7 @@ export const MEDICINE_BELOW = 50;
 
 // Cada acción dura `ms` y reparte `gain` poco a poco mientras dura (en applyTick), como dormir.
 // La golosina dura menos pero da más: cae del cielo y Pocky va a por ella.
-const ACTIONS: Record<Exclude<PetAction, 'sleep' | 'wake' | 'cuddle' | 'clean'>, Effect> = {
+const ACTIONS: Record<Exclude<PetAction, 'sleep' | 'wake' | 'cuddle' | 'clean' | 'wear'>, Effect> = {
   feed:  { activity: 'eating',   ms: 20000, full: 'hunger',      gain: { hunger: 15, happiness: 5 } },
   treat: { activity: 'snacking', ms: 12000, full: 'hunger',      gain: { hunger: 25, happiness: 10 } },
   bathe: { activity: 'bathing',  ms: 20000, full: 'cleanliness', gain: { cleanliness: 40, health: 5 } },
@@ -177,7 +190,7 @@ export const FULL = 90;
 
 /** No quiere hacerlo: ya está lleno de eso, o no tiene energía para moverse. */
 export function refuses(s: PetData, a: PetAction, now = Date.now()): boolean {
-  if (a === 'wake' || a === 'cuddle' || a === 'clean') return false;
+  if (a === 'wake' || a === 'cuddle' || a === 'clean' || a === 'wear') return false;
   if (a === 'sleep') return s.energy >= FULL && !isNight(now); // de noche siempre se puede acostar
   const e = ACTIONS[a];
   return s[e.full] >= (e.fullAt ?? FULL) || s.energy < (e.minEnergy ?? 0);
@@ -190,12 +203,18 @@ const withMood = (s: PetData, now: number): PetData => ({ ...s, mood: getMood(s,
  * Se usa igual en local (respuesta inmediata) y dentro de la transacción de Firestore (la que manda).
  * Las acciones no suman nada al empezar: lo van sumando los ticks hasta `activityUntil`.
  */
-export function applyAction(s: PetData, a: PetAction, now = Date.now(), spot?: number): PetData | null {
+export function applyAction(s: PetData, a: PetAction, now = Date.now(), arg?: number | string): PetData | null {
   const r: PetData = { ...s, ...applyTick(s, now), lastUpdated: now };
-  // Limpiar la caca de `spot` (la que se tocó): cuenta como cuidado; se puede aunque Pocky esté ocupado o dormido.
+  // Limpiar la caca del sitio `arg` (la que se tocó): cuenta como cuidado; se puede aunque Pocky esté ocupado o dormido.
   if (a === 'clean') {
-    const poops = r.poops ?? [], i = poops.findIndex(p => p.spot === spot && p.at <= now);
+    const poops = r.poops ?? [], i = poops.findIndex(p => p.spot === arg && p.at <= now);
     return i < 0 ? null : withMood({ ...r, ...cared(r, now), poops: poops.filter((_, j) => j !== i) }, now);
+  }
+  // Ponerle o quitarle el accesorio `arg` (si ya lo tiene puesto, se lo quita). Solo los desbloqueados.
+  if (a === 'wear') {
+    const item = ACCESSORIES.find(x => x.id === arg);
+    if (!item || (r.totalCaresGiven ?? 0) < item.cares) return null;
+    return { ...r, outfit: { ...r.outfit, [item.slot]: r.outfit?.[item.slot] === item.id ? '' : item.id } };
   }
   // Despertar no regala energía: la que tiene es la que recuperó durmiendo (antes +30: dormir/despertar llenaba la barra).
   // De noche, despertarlo lo pone de malas ("¡Me despertaron!").
@@ -250,11 +269,11 @@ export function currentStreak(s: PetData, now = Date.now()): number {
 /** Campos que escriben los clientes. Nunca nombre, createdAt ni tokens (así no se pisan entre móviles). */
 export function syncedFields(s: PetData) {
   const { hunger, happiness, cleanliness, energy, health, mood, activity, isAsleep, lastUpdated, totalCaresGiven, activityUntil, lastCuddle, streak, streakDay,
-    sleptAlone, grumpyUntil, grumpyWhy, poops } = s;
+    sleptAlone, grumpyUntil, grumpyWhy, poops, outfit } = s;
   return {
     hunger, happiness, cleanliness, energy, health, mood, activity, isAsleep, lastUpdated,
     totalCaresGiven: totalCaresGiven ?? 0, activityUntil: activityUntil ?? 0, lastCuddle: lastCuddle ?? 0,
     streak: streak ?? 0, streakDay: streakDay ?? '',
-    sleptAlone: sleptAlone ?? false, grumpyUntil: grumpyUntil ?? 0, grumpyWhy: grumpyWhy ?? '', poops: poops ?? [],
+    sleptAlone: sleptAlone ?? false, grumpyUntil: grumpyUntil ?? 0, grumpyWhy: grumpyWhy ?? '', poops: poops ?? [], outfit: outfit ?? {},
   };
 }

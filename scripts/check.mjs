@@ -1,7 +1,7 @@
 // Checks mínimos de la lógica pura. Ejecutar: npm run check (Node >= 23, quita los tipos de .ts solo).
 import assert from 'node:assert/strict';
 import { NODES, EDGES, findPath, nearestNode, WANDER, POI, TREAT_SPOTS, POOP_XZ } from '../src/components/scene/nav.ts';
-import { applyTick, applyAction, getNeeds, clamp, visiblePoops, POOP_SPOTS, syncedFields, computeAge, currentStreak, partnerSummary, DEFAULT_PET, cancunHour, cancunDay, isQuietHour } from '../src/lib/petLogic.ts';
+import { applyTick, applyAction, getNeeds, clamp, visiblePoops, POOP_SPOTS, ACCESSORIES, syncedFields, computeAge, currentStreak, partnerSummary, DEFAULT_PET, cancunHour, cancunDay, isQuietHour } from '../src/lib/petLogic.ts';
 
 // Hora de Cancún (UTC−5 todo el año), da igual la zona del móvil o del servidor.
 const utc = (d, h, m = 0) => Date.UTC(2026, 9, d, h, m);
@@ -165,6 +165,15 @@ for (const [x, z] of POOP_XZ) {
   }), `caca en [${x}, ${z}] demasiado cerca de un camino de Pocky`);
   assert.ok((x / 9.6) ** 2 + (z / 7.4) ** 2 < 0.75, `caca en [${x}, ${z}] demasiado cerca del borde`);
 }
+
+// Accesorios: solo los desbloqueados; uno por hueco; tocar el que lleva se lo quita.
+assert.equal(applyAction({ ...base, totalCaresGiven: 5 }, 'wear', t0, 'bow'), null, 'con 5 cuidados el moño (10) sigue bloqueado');
+const dressed = applyAction({ ...base, totalCaresGiven: 60 }, 'wear', t0, 'bow');
+assert.equal(dressed.outfit.head, 'bow');
+assert.equal(applyAction(dressed, 'wear', t0, 'beanie').outfit.head, 'beanie', 'mismo hueco: cambia uno por otro');
+assert.deepEqual(applyAction(dressed, 'wear', t0, 'bell').outfit, { head: 'bow', neck: 'bell' }, 'otro hueco: se suman');
+assert.equal(applyAction(dressed, 'wear', t0, 'bow').outfit.head, '', 'el que lleva puesto: se lo quita');
+assert.equal(new Set(ACCESSORIES.map(a => a.id)).size, ACCESSORIES.length);
 
 // syncedFields: nunca escribe nombre, fecha de nacimiento ni tokens; sí la hora de fin de la acción.
 const fields = syncedFields({ ...fed, fcmTokens: ['x'] });

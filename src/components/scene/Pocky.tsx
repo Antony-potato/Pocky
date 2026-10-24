@@ -8,6 +8,7 @@ import type { PetActivity, PetMood } from '@/types/pet';
 import { NODES, POI, TOUR, WANDER, TREAT_SPOTS, findPath, nearestNode, type NodeId, type XZ } from './nav';
 import { Part, toon, LINE } from './toon';
 import { TreatModel, TREAT_KINDS, TREAT_NAME, type TreatKind } from './Treat';
+import Outfit from './Accessories';
 
 // Posición de Pocky, la lee la cámara para seguirle. ponytail: global porque solo hay un Pocky.
 export const pockyPos = new THREE.Vector3(NODES.c[0], 0, NODES.c[1]);
@@ -56,6 +57,7 @@ export default function Pocky() {
   const need = usePetStore(s => s.needs[0]?.message); // si le falta algo, lo dice en el bocadillo
   const sick = usePetStore(s => s.health < SICK);
   const grumpyWhy = usePetStore(s => s.mood === 'grumpy' ? s.grumpyWhy || 'alone' : null);
+  const outfit = usePetStore(s => [s.outfit?.head, s.outfit?.neck, s.outfit?.face].join('|')); // texto: no re-pinta en cada tick
   const clock = useThree(s => s.clock);
   const gl = useThree(s => s.gl);
   const [treatKind, setTreatKind] = useState<TreatKind | null>(null);
@@ -363,6 +365,7 @@ export default function Pocky() {
           <mesh material={mat.line} position={[0, -0.19, 0.385]}><boxGeometry args={[0.014, 0.07, 0.01]} /></mesh>
           {/* enfermo: moco y mejillas verdosas (se encienden en useFrame) */}
           <mesh ref={snot} geometry={SPHERE} material={mat.snot} visible={false} />
+          <Outfit ids={outfit.split('|')} />
           <group ref={brows} visible={false}>
             {[-1, 1].map(s => <mesh key={s} geometry={BOX} material={mat.line} position={[0.18 * s, 0.2, 0.35]} rotation-z={0.45 * s} scale={[0.15, 0.035, 0.03]} />)}
           </group>

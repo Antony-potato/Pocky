@@ -4,10 +4,11 @@ import dynamic from 'next/dynamic';
 import { usePetStore, getDeviceId } from '@/store/petStore';
 import CircularStats, { HUD_DARK, PILL } from './CircularStats';
 import ActivityLog from './ActivityLog';
+import Wardrobe from './Wardrobe';
 import Splash from './Splash';
 import { requestNotificationPermission } from '@/lib/messaging';
-import { computeAge, currentStreak, refuses, MEDICINE_BELOW, type PetAction } from '@/lib/petLogic';
-import { Utensils, Candy, ShowerHead, TreePine, Gamepad2, Pill, Moon, Sun, Bell, PawPrint, WifiOff, Wifi, Flame, History as HistoryIcon, type LucideIcon } from 'lucide-react';
+import { computeAge, currentStreak, refuses, MEDICINE_BELOW, ACCESSORIES, type PetAction } from '@/lib/petLogic';
+import { Utensils, Candy, ShowerHead, TreePine, Gamepad2, Pill, Moon, Sun, Bell, PawPrint, WifiOff, Wifi, Flame, Shirt, History as HistoryIcon, type LucideIcon } from 'lucide-react';
 
 // Three.js solo en el cliente (usa WebGL y window). Mientras carga, la tapa el Splash.
 const World = dynamic(() => import('./scene/World'), { ssr: false });
@@ -43,6 +44,11 @@ export default function PetScreen() {
   const [reconnected, setReconnected] = useState(false);
   const [askName, setAskName] = useState(false);
   const [showLog, setShowLog] = useState(false);
+  const [showWardrobe, setShowWardrobe] = useState(false);
+  // Accesorios desbloqueados que este móvil aún no ha visto en el armario → punto en el botón.
+  const unlocked = ACCESSORIES.filter(it => (pet.totalCaresGiven ?? 0) >= it.cares).length;
+  const [seenUnlocks, setSeenUnlocks] = useState(Infinity); // hasta leer localStorage, sin punto
+  useEffect(() => { try { setSeenUnlocks(Number(localStorage.getItem('pocky_seen_unlocks') ?? 0)); } catch { setSeenUnlocks(0); } }, []);
   const prevConnected = useRef<boolean | null>(null);
   const hour = pet.isAsleep ? 22 : isMounted ? new Date().getHours() : 10;
   const petAge = isMounted && pet.createdAt ? computeAge(pet.createdAt) : null;
@@ -168,6 +174,14 @@ export default function PetScreen() {
           </div>
           <div className="flex gap-2 shrink-0">
             <button
+              onClick={() => { setShowWardrobe(true); setSeenUnlocks(unlocked); try { localStorage.setItem('pocky_seen_unlocks', String(unlocked)); } catch {} }}
+              className={`${PILL} relative pointer-events-auto rounded-full w-12 h-12 flex items-center justify-center active:scale-90 transition-transform`}
+              aria-label={unlocked > seenUnlocks ? 'Armario (accesorio nuevo)' : 'Armario'} title="Armario"
+            >
+              <Shirt size={20} color="#c084fc" fill="#c084fc" />
+              {unlocked > seenUnlocks && <span className="absolute top-1.5 right-1.5 w-3 h-3 rounded-full bg-[#ff5c7a] border-2 border-[#151a19]" />}
+            </button>
+            <button
               onClick={() => setShowLog(true)}
               className={`${PILL} pointer-events-auto rounded-full w-12 h-12 flex items-center justify-center active:scale-90 transition-transform`}
               aria-label="Historial" title="Historial"
@@ -241,6 +255,7 @@ export default function PetScreen() {
       </div>
 
       {showLog && <ActivityLog pet={pet} me={getDeviceId()} onClose={() => setShowLog(false)} />}
+      {showWardrobe && <Wardrobe pet={pet} onWear={id => pet.act('wear', id)} onClose={() => setShowWardrobe(false)} />}
 
       {askName && !splash && (
         <form
