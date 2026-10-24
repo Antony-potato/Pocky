@@ -1,18 +1,16 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { usePetStore } from '@/store/petStore';
-import CircularStats, { HUD_DARK } from './CircularStats';
+import { usePetStore, getDeviceId } from '@/store/petStore';
+import CircularStats, { HUD_DARK, PILL } from './CircularStats';
+import ActivityLog from './ActivityLog';
 import Splash from './Splash';
 import { requestNotificationPermission } from '@/lib/messaging';
 import { computeAge, refuses, type PetAction } from '@/lib/petLogic';
-import { Utensils, Candy, ShowerHead, TreePine, Gamepad2, Moon, Sun, Bell, PawPrint, WifiOff, Wifi, type LucideIcon } from 'lucide-react';
+import { Utensils, Candy, ShowerHead, TreePine, Gamepad2, Moon, Sun, Bell, PawPrint, WifiOff, Wifi, History as HistoryIcon, type LucideIcon } from 'lucide-react';
 
 // Three.js solo en el cliente (usa WebGL y window). Mientras carga, la tapa el Splash.
 const World = dynamic(() => import('./scene/World'), { ssr: false });
-
-// Píldora oscura flotante sobre la escena 3D.
-const PILL = 'bg-[#151a19]/90 backdrop-blur-md border border-white/[0.07] shadow-lg';
 
 // Estilo del icono: 'line' = solo trazo; 'solid' = relleno del mismo color; 'cutout' = relleno con detalles oscuros.
 type IconStyle = 'line' | 'solid' | 'cutout';
@@ -42,6 +40,7 @@ export default function PetScreen() {
   const [timedOut, setTimedOut] = useState(false);
   const [reconnected, setReconnected] = useState(false);
   const [askName, setAskName] = useState(false);
+  const [showLog, setShowLog] = useState(false);
   const prevConnected = useRef<boolean | null>(null);
   const hour = pet.isAsleep ? 22 : isMounted ? new Date().getHours() : 10;
   const petAge = isMounted && pet.createdAt ? computeAge(pet.createdAt) : null;
@@ -156,13 +155,22 @@ export default function PetScreen() {
             <h1 className="text-white text-xl font-black leading-none truncate">{pet.name}</h1>
             {petAge !== null && <span className="text-white/45 font-extrabold leading-none shrink-0" title={`${petAge} días con vosotros`}>{petAge}d</span>}
           </div>
-          <button
-            onClick={handleEnableNotifications}
-            className={`${PILL} pointer-events-auto shrink-0 rounded-full w-12 h-12 flex items-center justify-center active:scale-90 transition-transform`}
-            aria-label="Activar notificaciones" title="Activar notificaciones"
-          >
-            <Bell size={20} fill="#fcd34d" color="#fcd34d" />
-          </button>
+          <div className="flex gap-2 shrink-0">
+            <button
+              onClick={() => setShowLog(true)}
+              className={`${PILL} pointer-events-auto rounded-full w-12 h-12 flex items-center justify-center active:scale-90 transition-transform`}
+              aria-label="Historial" title="Historial"
+            >
+              <HistoryIcon size={20} color="#e5e7eb" strokeWidth={2.5} />
+            </button>
+            <button
+              onClick={handleEnableNotifications}
+              className={`${PILL} pointer-events-auto rounded-full w-12 h-12 flex items-center justify-center active:scale-90 transition-transform`}
+              aria-label="Activar notificaciones" title="Activar notificaciones"
+            >
+              <Bell size={20} fill="#fcd34d" color="#fcd34d" />
+            </button>
+          </div>
         </div>
 
         {/* Estado de conexión: icono + texto (no solo color), sin bloquear, anunciado a lectores de pantalla */}
@@ -220,6 +228,8 @@ export default function PetScreen() {
           </div>
         </div>
       </div>
+
+      {showLog && <ActivityLog pet={pet} me={getDeviceId()} onClose={() => setShowLog(false)} />}
 
       {askName && !splash && (
         <form

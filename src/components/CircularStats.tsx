@@ -2,6 +2,8 @@
 import { Utensils, Smile, Droplet, Zap, Heart } from 'lucide-react';
 
 export const HUD_DARK = '#151a19';
+// Píldora oscura flotante sobre la escena 3D (HUD, paneles).
+export const PILL = 'bg-[#151a19]/90 backdrop-blur-md border border-white/[0.07] shadow-lg';
 const R = 26, CIRC = 2 * Math.PI * R;
 const ICON = 'w-[42%] h-[42%]';
 

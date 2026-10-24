@@ -16,6 +16,7 @@ export function getDeviceId(): string {
 }
 
 const PET = doc(db, 'pets/pocky');
+const LOG_MAX = 30;
 let lastServer: PetData | null = null; // último estado confirmado por el servidor
 
 interface PetStore extends PetData {
@@ -51,13 +52,16 @@ const view = (d: PetData) => ({ ...d, createdAt: d.createdAt ?? 0, needs: getNee
  * - Dos móviles a la vez no se pisan (antes ganaba el último en escribir su copia local entera).
  * - Sin conexión la transacción falla en vez de quedar en cola: lo jugado offline no se guarda.
  */
-async function commit(change: (server: PetData) => PetData | null): Promise<'saved' | 'rejected' | 'failed'> {
+async function commit(change: (server: PetData) => PetData | null, logAs?: string): Promise<'saved' | 'rejected' | 'failed'> {
   try {
     return await runTransaction(db, async tx => {
       const snap = await tx.get(PET);
-      const next = snap.exists() ? change(snap.data() as PetData) : null;
-      if (!next) return 'rejected';
-      tx.update(PET, { ...syncedFields(next), lastSyncedBy: getDeviceId(), updatedAt: serverTimestamp() });
+      const server = snap.data() as PetData | undefined;
+      const next = server ? change(server) : null;
+      if (!server || !next) return 'rejected';
+      // Historial en la misma transacción, sobre el log del servidor: no se pierden las entradas del otro móvil.
+      const log = logAs ? { log: [...(server.log ?? []), { by: getDeviceId(), a: logAs, t: Date.now() }].slice(-LOG_MAX) } : {};
+      tx.update(PET, { ...syncedFields(next), ...log, lastSyncedBy: getDeviceId(), updatedAt: serverTimestamp() });
       return 'saved';
     });
   } catch (e) {
@@ -68,9 +72,9 @@ async function commit(change: (server: PetData) => PetData | null): Promise<'sav
 
 export const usePetStore = create<PetStore>((set, get) => {
   // Si el servidor rechaza la acción (p. ej. tu pareja hizo otra a la vez), vuelve al estado real.
-  const save = (change: (server: PetData) => PetData | null) => {
+  const save = (change: (server: PetData) => PetData | null, logAs?: string) => {
     if (!get().isConnected) return; // sin conexión: solo local, a propósito
-    commit(change).then(r => { if (r === 'rejected' && lastServer) { set(view(lastServer)); get().tick(); } });
+    commit(change, logAs).then(r => { if (r === 'rejected' && lastServer) { set(view(lastServer)); get().tick(); } });
   };
 
   return {
@@ -86,7 +90,7 @@ export const usePetStore = create<PetStore>((set, get) => {
       const next = applyAction(get(), a);
       if (!next) return;
       set({ ...next, needs: getNeeds(next) }); // respuesta inmediata en pantalla
-      save(server => applyAction(server, a)); // termina sola en `activityUntil` (applyTick), sin más escrituras
+      save(server => applyAction(server, a), a); // termina sola en `activityUntil` (applyTick), sin más escrituras
     },
 
     // Degradación local cada 20 s (cada 1 s durante una acción), solo para la pantalla. NUNCA escribe en la BD (eso es del cron y de las acciones).

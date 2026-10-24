@@ -29,6 +29,13 @@ export interface PetData {
   lastSyncedBy:         string;
   fcmTokens?:           string[]; // Tokens FCM antiguos, sin dueño (los nuevos van en `devices`)
   devices?:             Record<string, Device>; // cada móvil, por su deviceId
+  log?:                 LogEntry[]; // últimas acciones, para el historial (máx. 30)
+}
+
+export interface LogEntry {
+  by: string; // deviceId de quien la hizo
+  a:  string; // acción ('feed', 'bathe', …)
+  t:  number; // timestamp ms
 }
 
 export interface Device {
