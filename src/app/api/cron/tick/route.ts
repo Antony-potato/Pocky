@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
-import { applyTick, getNeeds } from '@/lib/petLogic';
+import { applyTick, getNeeds, isQuietHour } from '@/lib/petLogic';
 import { PetData } from '@/types/pet';
 
 // firebase-admin no funciona en edge: esta ruta se queda en el runtime de Node.
@@ -55,30 +55,45 @@ export async function GET(req: NextRequest) {
     if (Object.keys(changes).length === 0) return NextResponse.json({ message: 'No changes needed' });
     const merged = { ...pet, ...changes } as PetData;
 
-    // ----- Notificación (FCM: Chrome, Android y Safari/iPhone instalado) -----
-    const needs = getNeeds(merged);
-    const tokens = pet.fcmTokens ?? [];
+    // ----- Notificaciones (FCM: Chrome, Android y Safari/iPhone instalado) -----
     const now = Date.now();
     const appUrl = new URL('/', req.url).href;
+    const devices = pet.devices ?? {};
+    const legacy = pet.fcmTokens ?? [];
+    const everyone = [...new Set([...Object.values(devices).flatMap(d => d.token ? [d.token] : []), ...legacy])];
+    const update: Record<string, unknown> = {};
+    const dead = new Set<string>();
     let notified = 0;
-    const cooldown = needs.some(n => n.urgency === 'critical') ? CRITICAL_COOLDOWN_MS : COOLDOWN_MS;
 
-    if (needs.length > 0 && tokens.length > 0 && now - (pet.lastNotificationSent ?? 0) > cooldown - SLACK_MS) {
-      // Solo `data`: la notificación la pinta siempre nuestro service worker (fiable en iOS, sin duplicados).
-      const res = await getMessaging(adminApp).sendEachForMulticast({
+    // Solo `data`: la notificación la pinta siempre nuestro service worker (fiable en iOS, sin duplicados).
+    const send = async (tokens: string[], data: Record<string, string>, ttlMs: number) => {
+      if (!tokens.length) return;
+      const r = await getMessaging(adminApp).sendEachForMulticast({
         tokens,
-        data: { title: `¡${pet.name} te necesita!`, body: needs.map(n => n.message).join(' y '), link: appUrl },
-        webpush: {
-          // high: entrega inmediata aunque Android esté en reposo (si no, las acumula y llegan juntas).
-          // TTL = cooldown: si el móvil no la recibe antes de la siguiente, se descarta en vez de llegar tarde.
-          headers: { Urgency: 'high', TTL: String(cooldown / 1000) },
-        },
+        data: { link: appUrl, ...data },
+        // high: entrega inmediata aunque Android esté en reposo (si no, las acumula y llegan juntas).
+        // TTL: si el móvil no la recibe a tiempo, se descarta en vez de llegar tarde.
+        webpush: { headers: { Urgency: 'high', TTL: String(Math.round(ttlMs / 1000)) } },
       });
-      notified = res.successCount;
-      const alive = tokens.filter((_, i) => !DEAD_TOKEN.has(res.responses[i].error?.code ?? ''));
-      await ref.update({ lastNotificationSent: now, ...(alive.length !== tokens.length && { fcmTokens: alive }) });
-      console.log(`[Cron] FCM ok: ${res.successCount}, fallos: ${res.failureCount}, tokens borrados: ${tokens.length - alive.length}`);
+      notified += r.successCount;
+      r.responses.forEach((x, i) => { if (DEAD_TOKEN.has(x.error?.code ?? '')) dead.add(tokens[i]); });
+      console.log(`[Cron] FCM "${data.title}": ok ${r.successCount}, fallos ${r.failureCount}`);
+    };
+
+    // Necesidades: a los dos, con cooldown. De noche (Cancún) se espera: sale a las 8:00.
+    const needs = getNeeds(merged);
+    const cooldown = needs.some(n => n.urgency === 'critical') ? CRITICAL_COOLDOWN_MS : COOLDOWN_MS;
+    if (!isQuietHour(now) && needs.length > 0 && now - (pet.lastNotificationSent ?? 0) > cooldown - SLACK_MS) {
+      await send(everyone, { title: `¡${pet.name} te necesita!`, body: needs.map(n => n.message).join(' y ') }, cooldown);
+      update.lastNotificationSent = now;
     }
+
+    // Tokens muertos: fuera de la lista vieja y de su móvil (el móvil crea otro al abrir la app).
+    if (dead.size) {
+      if (legacy.some(t => dead.has(t))) update.fcmTokens = legacy.filter(t => !dead.has(t));
+      for (const [id, d] of Object.entries(devices)) if (d.token && dead.has(d.token)) update[`devices.${id}.token`] = FieldValue.delete();
+    }
+    if (Object.keys(update).length) await ref.update(update);
 
     return NextResponse.json({ success: true, changes, notified });
   } catch (e) {

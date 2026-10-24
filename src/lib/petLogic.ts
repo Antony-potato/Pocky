@@ -4,6 +4,15 @@ export function clamp(v: number, min = 0, max = 100) {
   return Math.max(min, Math.min(max, v));
 }
 
+// Hora de Cancún (UTC−5 todo el año): la misma en los dos móviles y en el cron, que corre en UTC.
+const TZ = 'America/Cancun';
+const HOUR_FMT = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', hourCycle: 'h23' });
+const DAY_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
+export const cancunHour = (now = Date.now()) => Number(HOUR_FMT.format(now));
+export const cancunDay = (now = Date.now()) => DAY_FMT.format(now); // '2026-10-24'
+/** Silencio de notificaciones: de 23:00 a 8:00 (Cancún). */
+export const isQuietHour = (now = Date.now()) => { const h = cancunHour(now); return h >= 23 || h < 8; };
+
 export function getMood(s: PetData): PetMood {
   if (s.isAsleep) return 'sleeping';
   if (s.health < 30) return 'sick';

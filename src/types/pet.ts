@@ -27,5 +27,11 @@ export interface PetData {
   lastNotificationSent?: number;
   totalCaresGiven:      number;
   lastSyncedBy:         string;
-  fcmTokens?:           string[]; // Tokens FCM (Chrome, Android y Safari/iPhone)
+  fcmTokens?:           string[]; // Tokens FCM antiguos, sin dueño (los nuevos van en `devices`)
+  devices?:             Record<string, Device>; // cada móvil, por su deviceId
+}
+
+export interface Device {
+  name?:  string; // "¿Cómo te llamas?" la primera vez que se abre
+  token?: string; // token FCM de ese móvil
 }

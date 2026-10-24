@@ -1,11 +1,11 @@
 'use client';
 import { create } from 'zustand';
 import { db, ensureAuth } from '@/lib/firebase';
-import { doc, setDoc, onSnapshot, runTransaction, serverTimestamp, arrayUnion } from 'firebase/firestore';
+import { doc, setDoc, onSnapshot, runTransaction, serverTimestamp } from 'firebase/firestore';
 import type { PetData, PetNeed } from '@/types/pet';
 import { getNeeds, applyTick, applyAction, syncedFields, DEFAULT_PET, type PetAction } from '@/lib/petLogic';
 
-function getDeviceId(): string {
+export function getDeviceId(): string {
   if (typeof window === 'undefined') return 'server';
   let id = localStorage.getItem('pocky_device_id');
   if (!id) {
@@ -33,6 +33,15 @@ interface PetStore extends PetData {
   tick: () => void;
   startListening: () => () => void;
   registerFCMToken: (token: string) => Promise<void>;
+  setName: (name: string) => Promise<void>;
+}
+
+/** Escribe solo en `devices[este móvil]` (merge): no toca stats ni lo del otro móvil. */
+async function saveDevice(data: { name?: string; token?: string }) {
+  try {
+    await ensureAuth();
+    await setDoc(PET, { devices: { [getDeviceId()]: data } }, { merge: true });
+  } catch (e) { console.error('Device sync error:', e); }
 }
 
 const view = (d: PetData) => ({ ...d, createdAt: d.createdAt ?? 0, needs: getNeeds(d) });
@@ -88,12 +97,11 @@ export const usePetStore = create<PetStore>((set, get) => {
       set({ ...changes, needs: getNeeds({ ...s, ...changes }) });
     },
 
-    // arrayUnion: no depende de que haya llegado el snapshot, así no se pisan los tokens del otro dispositivo.
-    registerFCMToken: async (token: string) => {
-      try {
-        await ensureAuth();
-        await setDoc(PET, { fcmTokens: arrayUnion(token) }, { merge: true });
-      } catch (e) { console.error('Token sync error:', e); }
+    // Token por móvil (no en la lista común): así el cron sabe de quién es cada uno para avisar al otro.
+    registerFCMToken: (token) => saveDevice({ token }),
+    setName: (name) => {
+      localStorage.setItem('pocky_name', name);
+      return saveDevice({ name });
     },
 
     startListening: () => {

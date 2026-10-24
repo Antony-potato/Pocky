@@ -1,7 +1,15 @@
 // Checks mínimos de la lógica pura. Ejecutar: npm run check (Node >= 23, quita los tipos de .ts solo).
 import assert from 'node:assert/strict';
 import { NODES, findPath, nearestNode, WANDER, POI, TREAT_SPOTS } from '../src/components/scene/nav.ts';
-import { applyTick, applyAction, syncedFields, computeAge, DEFAULT_PET } from '../src/lib/petLogic.ts';
+import { applyTick, applyAction, syncedFields, computeAge, DEFAULT_PET, cancunHour, cancunDay, isQuietHour } from '../src/lib/petLogic.ts';
+
+// Hora de Cancún (UTC−5 todo el año), da igual la zona del móvil o del servidor.
+const utc = (d, h, m = 0) => Date.UTC(2026, 9, d, h, m);
+assert.equal(cancunHour(utc(24, 6, 30)), 1);          // 06:30 UTC = 01:30 en Cancún
+assert.equal(cancunHour(utc(24, 5)), 0);              // medianoche: 0, no 24
+assert.equal(cancunDay(utc(24, 3)), '2026-10-23');    // 03:00 UTC aún es "ayer" en Cancún
+assert.ok(isQuietHour(utc(24, 4)) && isQuietHour(utc(24, 12, 59)), '23:00 y 7:59 en silencio');
+assert.ok(!isQuietHour(utc(24, 13)) && !isQuietHour(utc(25, 3, 59)), '8:00 y 22:59 sí avisa');
 
 // Navegación: todos los destinos alcanzables desde el centro, y los caminos empiezan/acaban donde toca.
 for (const to of [...WANDER, ...Object.values(POI).map(p => p.node)]) {

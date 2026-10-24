@@ -41,6 +41,7 @@ export default function PetScreen() {
   const [minTime, setMinTime] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
   const [reconnected, setReconnected] = useState(false);
+  const [askName, setAskName] = useState(false);
   const prevConnected = useRef<boolean | null>(null);
   const hour = pet.isAsleep ? 22 : isMounted ? new Date().getHours() : 10;
   const petAge = isMounted && pet.createdAt ? computeAge(pet.createdAt) : null;
@@ -63,6 +64,9 @@ export default function PetScreen() {
   useEffect(() => {
     if (!isMounted) return;
     const unsub = pet.startListening();
+    // Nombre de este móvil (historial, avisos al otro). Si ya lo tiene se reenvía por si el doc no lo guarda aún.
+    const name = localStorage.getItem('pocky_name');
+    if (name) pet.setName(name); else setAskName(true);
     // Si ya hay permiso, renueva el token en silencio (sin prompt): los tokens caducan y si no se
     // actualizan dejan de llegar notificaciones a ese móvil.
     if ('Notification' in window && Notification.permission === 'granted') {
@@ -216,6 +220,30 @@ export default function PetScreen() {
           </div>
         </div>
       </div>
+
+      {askName && !splash && (
+        <form
+          className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 px-4"
+          onSubmit={e => {
+            e.preventDefault();
+            const name = String(new FormData(e.currentTarget).get('name') ?? '').trim();
+            if (!name) return;
+            pet.setName(name);
+            setAskName(false);
+          }}
+        >
+          <div className={`${PILL} rounded-3xl p-5 w-full max-w-xs flex flex-col gap-3`}>
+            <label htmlFor="pocky-name" className="text-white font-black text-lg leading-tight">¿Cómo te llamas?</label>
+            <p className="text-white/60 text-sm -mt-2">Así {pet.name} sabe quién lo cuida.</p>
+            {/* text-base (16px): con menos iOS hace zoom al enfocar. select-text: el body tiene user-select none. */}
+            <input
+              id="pocky-name" name="name" required maxLength={20} autoComplete="given-name" autoFocus
+              className="select-text rounded-xl bg-white/10 text-white text-base px-3 py-2.5 outline-none focus:ring-2 focus:ring-[#ff9f43]"
+            />
+            <button className="rounded-xl bg-[#ff9f43] text-[#151a19] font-black py-2.5 active:scale-95 transition-transform">Listo</button>
+          </div>
+        </form>
+      )}
 
       {splash && <Splash progress={progress} ready={ready} status={status} onDone={onSplashDone} />}
     </main>
