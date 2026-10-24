@@ -24,7 +24,8 @@ const FUR = '#efd6ab', PINK = '#efaab3';
 const DROP_H = 7, FALL = Math.sqrt((2 * DROP_H) / 18); // la golosina cae desde 7 de altura con gravedad 18
 
 type Pose = 'sit' | 'walk' | 'eat' | 'bath' | 'play' | 'sleep';
-type Goal = { pose: Pose; hold: number; face: XZ; until?: number; startAt?: number }; // startAt: no empieza antes (p. ej. hasta que aterrice la golosina)
+// startAt: no empieza antes (p. ej. hasta que aterrice la golosina). endAt: cuando acaba la acción; hold = mínimo si llega tarde.
+type Goal = { pose: Pose; hold: number; face: XZ; until?: number; startAt?: number; endAt?: number };
 const TASKS: Partial<Record<PetActivity, keyof typeof POI>> = { eating: 'eat', bathing: 'bath', playing: 'play' };
 
 const SPHERE = new THREE.SphereGeometry(1, 24, 16);
@@ -109,6 +110,8 @@ export default function Pocky() {
     }
     if (b.goal?.pose === 'sleep') { b.goal = null; b.route = []; b.restUntil = clock.elapsedTime + 2; }
     const task = TASKS[activity];
+    // La pose dura hasta que acaba la acción (misma hora en los dos móviles).
+    const endAt = clock.elapsedTime + ((usePetStore.getState().activityUntil ?? 0) - Date.now()) / 1000;
     if (activity === 'snacking') {
       // Golosina: tipo y sitio salen del contador de cuidados, así ambos móviles ven lo mismo.
       const seed = usePetStore.getState().totalCaresGiven ?? 0;
@@ -119,14 +122,14 @@ export default function Pocky() {
       // Se para a 0.8 de la golosina (la cabeza le llega al comer), del lado del nodo (zona despejada), mirándola.
       const dx = nx - tx, dz = nz - tz, d = Math.hypot(dx, dz);
       b.route = [...route(here, spot), [tx + (dx / d) * 0.8, tz + (dz / d) * 0.8]];
-      b.goal = { pose: 'eat', hold: 3.2, face: [tx, tz], startAt: clock.elapsedTime + FALL + 0.35 };
+      b.goal = { pose: 'eat', hold: 2, face: [tx, tz], startAt: clock.elapsedTime + FALL + 0.35, endAt };
       b.fast = true;
       b.treat = { x: tx, z: tz, t0: clock.elapsedTime };
       setTreatKind(TREAT_KINDS[(seed + Math.floor(seed / TREAT_SPOTS.length)) % TREAT_KINDS.length]); // no siempre la misma en el mismo sitio
     } else if (task) {
       dropTreat();
       b.route = route(here, POI[task].node);
-      b.goal = { pose: task, hold: 5, face: POI[task].face };
+      b.goal = { pose: task, hold: 2, face: POI[task].face, endAt };
       b.fast = true;
     } else if (activity === 'walking') {
       dropTreat();
@@ -148,7 +151,11 @@ export default function Pocky() {
         b.route.shift();
         if (!b.route.length) {
           b.fast = false;
-          if (b.goal) b.goal.until = Math.max(t, b.goal.startAt ?? 0) + b.goal.hold;
+          if (b.goal) {
+            const start = Math.max(t, b.goal.startAt ?? 0);
+            b.goal.until = Math.max(start + b.goal.hold, b.goal.endAt ?? 0);
+            b.goal.hold = b.goal.until - start; // los mordiscos de la golosina se reparten en todo ese rato
+          }
           else b.restUntil = t + 3 + Math.random() * 6;
         }
       } else {

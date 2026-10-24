@@ -34,12 +34,13 @@
 1. **Stat Degradation (applyTick):** 
    - Happens locally 20s for UI updates and Server-side via cron-job.org (every 15 min, `Authorization: Bearer CRON_SECRET`) for 24/7 persistence. Don't add crons to `vercel.json`: Hobby only allows daily ones.
    - Rates: 1.3x speed boost (e.g., hunger -= mins * 1.04).
-   - Sleep: High priority. Reduces energy consumption but freezes other stats.
+   - Sleep: High priority. Energy refills gradually (`SLEEP_ENERGY_PER_MIN`, ~30 min to 95 → auto-wake), applied on every local tick so the ring visibly rises; other stats freeze except slow hunger. Waking gives NO energy bonus (a +30 used to let sleep/wake spam fill the bar).
+   - Actions (`ACTIONS` in `petLogic.ts`): each lasts `ms` (12–25 s) and its `gain` is spread over that time by `applyTick` (nothing is added on tap). `activityUntil` (synced) ends it deterministically on both phones and in the cron, so no client writes the end. While acting, `PetScreen` ticks every 1 s so rings rise smoothly; Pocky's pose lasts until `activityUntil`. `refuses()`: no action when its stat is already ≥ `FULL` (90) or energy is too low; those buttons are dimmed.
 2. **Notifications (FCM only):**
    - Client: `src/lib/messaging.ts` → `getToken` with our own `firebase-messaging-sw.js`. Tokens stored in `fcmTokens` with `arrayUnion`, and refreshed silently on app open when permission is already granted.
    - SW has NO Firebase SDK: it handles `push` itself and ALWAYS calls `showNotification` (iOS revokes the subscription after pushes without a visible notification; the SDK skipped it when it thought the app was open). `tag: 'pocky'` collapses late arrivals into one.
-   - Server: cron sends data-only messages (`data: {title, body, link}`) with `webpush.headers` `Urgency: high` (no Android Doze batching) and `TTL` 4 h. Don't add a `notification` payload unless the SW changes accordingly.
-   - **Logic:** Cooldown of 4 hours between push notifications to prevent spam.
+   - Server: cron sends data-only messages (`data: {title, body, link}`) with `webpush.headers` `Urgency: high` (no Android Doze batching) and `TTL` = cooldown. Don't add a `notification` payload unless the SW changes accordingly.
+   - **Logic:** Cooldown between pushes: 4 h, or 1 h if any need is `critical` (hunger/cleanliness < 15). 5 min slack because cron calls drift by seconds.
 3. **Synchronization (CRITICAL):**
    - Firestore rules require auth: the client signs in anonymously (`ensureAuth` in `src/lib/firebase.ts`) before listening or writing. Without it everything is PERMISSION_DENIED and the app looks offline. Rules live in `firestore.rules`; publish with `npx firebase-tools deploy --only firestore:rules --project pocky-2c011`.
    - Actions are pure (`applyAction` in `petLogic.ts`), applied optimistically in local state and saved with a Firestore **transaction** that re-applies them to the server's state and writes only `syncedFields` (never name, `createdAt` or tokens). Cron also uses a transaction.

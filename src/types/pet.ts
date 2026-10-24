@@ -19,6 +19,7 @@ export interface PetData {
   health:          number;
   mood:            PetMood;
   activity:        PetActivity;
+  activityUntil?:  number;   // timestamp ms — cuándo termina la acción en curso
   isAsleep:        boolean;
   age:             number;
   createdAt:       number;   // timestamp ms — when pet was first created

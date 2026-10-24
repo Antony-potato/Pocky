@@ -5,7 +5,7 @@ import { usePetStore } from '@/store/petStore';
 import CircularStats, { HUD_DARK } from './CircularStats';
 import Splash from './Splash';
 import { requestNotificationPermission } from '@/lib/messaging';
-import { computeAge, type PetAction } from '@/lib/petLogic';
+import { computeAge, refuses, type PetAction } from '@/lib/petLogic';
 import { Utensils, Candy, ShowerHead, TreePine, Gamepad2, Moon, Sun, Bell, PawPrint, WifiOff, Wifi, type LucideIcon } from 'lucide-react';
 
 // Three.js solo en el cliente (usa WebGL y window). Mientras carga, la tapa el Splash.
@@ -93,6 +93,14 @@ export default function PetScreen() {
     }
   }, [pet.isConnected, splash]);
 
+  // Durante una acción (de cualquiera de los dos móviles), tick cada segundo: la barra sube poco a poco y acaba a su hora.
+  const acting = pet.activity !== 'idle' && !pet.isAsleep;
+  useEffect(() => {
+    if (!acting) return;
+    const i = setInterval(() => usePetStore.getState().tick(), 1000);
+    return () => clearInterval(i);
+  }, [acting]);
+
   // ---- Pantalla de carga ----
   const startedOffline = isMounted && !navigator.onLine;
   const ready = worldReady && minTime && (pet.loaded || timedOut || startedOffline);
@@ -104,12 +112,12 @@ export default function PetScreen() {
   const onWorldReady = useCallback(() => setWorldReady(true), []);
   const onSplashDone = useCallback(() => setSplash(false), []);
 
-  const actions: { id: PetAction; activityId: string; Icon: LucideIcon; style: IconStyle; color: string; label: string; disabled?: boolean }[] = [
+  const actions: { id: PetAction; activityId: string; Icon: LucideIcon; style: IconStyle; color: string; label: string }[] = [
     { id: 'feed', activityId: 'eating', Icon: Utensils, style: 'line', color: '#ff9f43', label: 'Alimentar' },
     { id: 'treat', activityId: 'snacking', Icon: Candy, style: 'cutout', color: '#f0506e', label: 'Golosina' },
     { id: 'bathe', activityId: 'bathing', Icon: ShowerHead, style: 'line', color: '#38bdf8', label: 'Bañar' },
-    { id: 'walk', activityId: 'walking', Icon: TreePine, style: 'solid', color: '#34d399', label: 'Pasear', disabled: pet.energy < 15 },
-    { id: 'play', activityId: 'playing', Icon: Gamepad2, style: 'cutout', color: '#c084fc', label: 'Jugar', disabled: pet.energy < 10 },
+    { id: 'walk', activityId: 'walking', Icon: TreePine, style: 'solid', color: '#34d399', label: 'Pasear' },
+    { id: 'play', activityId: 'playing', Icon: Gamepad2, style: 'cutout', color: '#c084fc', label: 'Jugar' },
     pet.isAsleep
       ? { id: 'wake', activityId: 'sleeping', Icon: Sun, style: 'solid', color: '#fbbf24', label: 'Despertar' }
       : { id: 'sleep', activityId: 'sleeping', Icon: Moon, style: 'solid', color: '#8b9cff', label: 'Dormir' },
@@ -184,7 +192,8 @@ export default function PetScreen() {
           </div>
           <div className={`${PILL} pointer-events-auto rounded-full p-[var(--gap)] flex gap-[var(--gap)]`}>
             {actions.map(a => {
-              const off = (pet.isAsleep && a.id !== 'wake') || (busy && a.activityId !== pet.activity) || a.disabled;
+              // Ocupado: solo queda encendida la acción en curso. Libre: apagadas las que no quiere (lleno o sin energía).
+              const off = (pet.isAsleep && a.id !== 'wake') || (busy ? a.activityId !== pet.activity : refuses(pet, a.id));
               const active = a.id === highlight && !off;
               return (
                 <button

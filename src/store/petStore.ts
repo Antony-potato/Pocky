@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { db, ensureAuth } from '@/lib/firebase';
 import { doc, setDoc, onSnapshot, runTransaction, serverTimestamp, arrayUnion } from 'firebase/firestore';
 import type { PetData, PetNeed } from '@/types/pet';
-import { getNeeds, applyTick, applyAction, endActivity, syncedFields, ACTION_MS, DEFAULT_PET, type PetAction } from '@/lib/petLogic';
+import { getNeeds, applyTick, applyAction, syncedFields, DEFAULT_PET, type PetAction } from '@/lib/petLogic';
 
 function getDeviceId(): string {
   if (typeof window === 'undefined') return 'server';
@@ -77,16 +77,10 @@ export const usePetStore = create<PetStore>((set, get) => {
       const next = applyAction(get(), a);
       if (!next) return;
       set({ ...next, needs: getNeeds(next) }); // respuesta inmediata en pantalla
-      save(server => applyAction(server, a));
-      const ms = ACTION_MS[a];
-      if (ms) setTimeout(() => {
-        const done = endActivity(get(), next.activity);
-        if (done) set({ ...done, needs: getNeeds(done) });
-        save(server => endActivity(server, next.activity));
-      }, ms);
+      save(server => applyAction(server, a)); // termina sola en `activityUntil` (applyTick), sin más escrituras
     },
 
-    // Degradación local cada 20 s, solo para la pantalla. NUNCA escribe en la BD (eso es del cron y de las acciones).
+    // Degradación local cada 20 s (cada 1 s durante una acción), solo para la pantalla. NUNCA escribe en la BD (eso es del cron y de las acciones).
     tick: () => {
       const s = get();
       const changes = applyTick(s);
