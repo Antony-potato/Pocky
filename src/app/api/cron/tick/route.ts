@@ -19,7 +19,10 @@ function getAdminApp() {
   return getApps()[0];
 }
 
-const COOLDOWN_MS = 4 * 60 * 60 * 1000; // máx. una notificación cada 4 h
+const HOUR = 60 * 60 * 1000;
+const COOLDOWN_MS = 4 * HOUR;          // máx. una notificación cada 4 h…
+const CRITICAL_COOLDOWN_MS = 1 * HOUR; // …o cada hora si está muy mal (alguna necesidad 'critical')
+const SLACK_MS = 5 * 60 * 1000;        // el cron no cae al segundo: sin margen "cada hora" serían 1 h 15
 // mismatched-credential / invalid-argument: Apple rechaza la suscripción (p. ej. creada con otra clave VAPID).
 // Nunca se recuperan; el móvil crea uno nuevo al abrir la app.
 const DEAD_TOKEN = new Set([
@@ -58,16 +61,17 @@ export async function GET(req: NextRequest) {
     const now = Date.now();
     const appUrl = new URL('/', req.url).href;
     let notified = 0;
+    const cooldown = needs.some(n => n.urgency === 'critical') ? CRITICAL_COOLDOWN_MS : COOLDOWN_MS;
 
-    if (needs.length > 0 && tokens.length > 0 && now - (pet.lastNotificationSent ?? 0) > COOLDOWN_MS) {
+    if (needs.length > 0 && tokens.length > 0 && now - (pet.lastNotificationSent ?? 0) > cooldown - SLACK_MS) {
       // Solo `data`: la notificación la pinta siempre nuestro service worker (fiable en iOS, sin duplicados).
       const res = await getMessaging(adminApp).sendEachForMulticast({
         tokens,
         data: { title: `¡${pet.name} te necesita!`, body: needs.map(n => n.message).join(' y '), link: appUrl },
         webpush: {
           // high: entrega inmediata aunque Android esté en reposo (si no, las acumula y llegan juntas).
-          // TTL 4 h: si el móvil no la recibe a tiempo, se descarta en vez de llegar tarde.
-          headers: { Urgency: 'high', TTL: String(COOLDOWN_MS / 1000) },
+          // TTL = cooldown: si el móvil no la recibe antes de la siguiente, se descarta en vez de llegar tarde.
+          headers: { Urgency: 'high', TTL: String(cooldown / 1000) },
         },
       });
       notified = res.successCount;
