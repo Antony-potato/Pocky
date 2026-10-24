@@ -97,7 +97,7 @@ export const usePetStore = create<PetStore>((set, get) => {
       // Mimos al historial como mucho uno cada 10 min por móvil (si no, una tanda de toques lo llena).
       const me = getDeviceId();
       const spam = a === 'cuddle' && get().log?.some(e => e.a === 'cuddle' && e.by === me && Date.now() - e.t < 10 * 60000);
-      save(server => applyAction(server, a, undefined, arg), spam || a === 'wear' ? undefined : a); // termina sola en `activityUntil` (applyTick), sin más escrituras
+      save(server => applyAction(server, a, undefined, arg), spam || a === 'wear' || a === 'fetch' ? undefined : a); // termina sola en `activityUntil` (applyTick), sin más escrituras
     },
 
     // Degradación local cada 20 s (cada 1 s durante una acción), solo para la pantalla. NUNCA escribe en la BD (eso es del cron y de las acciones).

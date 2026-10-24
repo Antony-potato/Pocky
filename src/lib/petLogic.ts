@@ -157,7 +157,10 @@ export function computeAge(createdAt: number, now = Date.now()): number {
   return Math.max(0, Math.round((day(now) - day(createdAt)) / 86400000));
 }
 
-export type PetAction = 'feed' | 'treat' | 'bathe' | 'walk' | 'play' | 'medicine' | 'sleep' | 'wake' | 'cuddle' | 'clean' | 'wear';
+export type PetAction = 'feed' | 'treat' | 'bathe' | 'walk' | 'play' | 'medicine' | 'sleep' | 'wake' | 'cuddle' | 'clean' | 'wear' | 'fetch';
+
+// Minijuego de la pelota (mientras juega): cada pelota que trae +3, hasta +20 por partida; alarga la partida.
+const FETCH_GAIN = 3, FETCH_MAX = 20, FETCH_EXTEND = 8000;
 
 // Mimos (tocar a Pocky): +3 de felicidad, como mucho uno cada 30 s. No cuentan como cuidado (ni racha ni accesorios).
 export const CUDDLE_MS = 30000;
@@ -174,7 +177,7 @@ export const MEDICINE_BELOW = 50;
 
 // Cada acción dura `ms` y reparte `gain` poco a poco mientras dura (en applyTick), como dormir.
 // La golosina dura menos pero da más: cae del cielo y Pocky va a por ella.
-const ACTIONS: Record<Exclude<PetAction, 'sleep' | 'wake' | 'cuddle' | 'clean' | 'wear'>, Effect> = {
+const ACTIONS: Record<Exclude<PetAction, 'sleep' | 'wake' | 'cuddle' | 'clean' | 'wear' | 'fetch'>, Effect> = {
   feed:  { activity: 'eating',   ms: 20000, full: 'hunger',      gain: { hunger: 15, happiness: 5 } },
   treat: { activity: 'snacking', ms: 12000, full: 'hunger',      gain: { hunger: 25, happiness: 10 } },
   bathe: { activity: 'bathing',  ms: 20000, full: 'cleanliness', gain: { cleanliness: 40, health: 5 } },
@@ -190,7 +193,7 @@ export const FULL = 90;
 
 /** No quiere hacerlo: ya está lleno de eso, o no tiene energía para moverse. */
 export function refuses(s: PetData, a: PetAction, now = Date.now()): boolean {
-  if (a === 'wake' || a === 'cuddle' || a === 'clean' || a === 'wear') return false;
+  if (a === 'wake' || a === 'cuddle' || a === 'clean' || a === 'wear' || a === 'fetch') return false;
   if (a === 'sleep') return s.energy >= FULL && !isNight(now); // de noche siempre se puede acostar
   const e = ACTIONS[a];
   return s[e.full] >= (e.fullAt ?? FULL) || s.energy < (e.minEnergy ?? 0);
@@ -225,11 +228,16 @@ export function applyAction(s: PetData, a: PetAction, now = Date.now(), arg?: nu
   // Mimos: también mientras hace otra cosa (no la interrumpen); dormido no se entera. Se le pasa lo de malas.
   if (a === 'cuddle') return r.isAsleep || now - (r.lastCuddle ?? 0) < CUDDLE_MS ? null
     : withMood({ ...r, happiness: clamp(r.happiness + CUDDLE_GAIN), lastCuddle: now, grumpyUntil: 0 }, now);
+  // Trajo la pelota: solo jugando y hasta el tope de la partida. Cada una le da 8 s más de juego.
+  if (a === 'fetch') return r.activity !== 'playing' || (r.fetchGain ?? 0) >= FETCH_MAX ? null : withMood({
+    ...r, happiness: clamp(r.happiness + FETCH_GAIN), fetchGain: (r.fetchGain ?? 0) + FETCH_GAIN,
+    activityUntil: Math.max(r.activityUntil ?? 0, now + FETCH_EXTEND),
+  }, now);
   if (r.isAsleep || r.activity !== 'idle' || refuses(r, a, now)) return null;
   if (a === 'sleep') return withMood({ ...r, isAsleep: true, activity: 'sleeping', sleptAlone: false }, now);
   const e = ACTIONS[a];
   const poop = a === 'feed' || a === 'treat' ? schedulePoop(r, now) : {};
-  return withMood({ ...r, ...cared(r, now), ...poop, activity: e.activity, activityUntil: now + e.ms }, now);
+  return withMood({ ...r, ...cared(r, now), ...poop, activity: e.activity, activityUntil: now + e.ms, ...(a === 'play' && { fetchGain: 0 }) }, now);
 }
 
 /** Un cuidado de verdad (no mimos ni dormir): suma al contador y a la racha. */
@@ -269,11 +277,11 @@ export function currentStreak(s: PetData, now = Date.now()): number {
 /** Campos que escriben los clientes. Nunca nombre, createdAt ni tokens (así no se pisan entre móviles). */
 export function syncedFields(s: PetData) {
   const { hunger, happiness, cleanliness, energy, health, mood, activity, isAsleep, lastUpdated, totalCaresGiven, activityUntil, lastCuddle, streak, streakDay,
-    sleptAlone, grumpyUntil, grumpyWhy, poops, outfit } = s;
+    sleptAlone, grumpyUntil, grumpyWhy, poops, outfit, fetchGain } = s;
   return {
     hunger, happiness, cleanliness, energy, health, mood, activity, isAsleep, lastUpdated,
     totalCaresGiven: totalCaresGiven ?? 0, activityUntil: activityUntil ?? 0, lastCuddle: lastCuddle ?? 0,
     streak: streak ?? 0, streakDay: streakDay ?? '',
-    sleptAlone: sleptAlone ?? false, grumpyUntil: grumpyUntil ?? 0, grumpyWhy: grumpyWhy ?? '', poops: poops ?? [], outfit: outfit ?? {},
+    sleptAlone: sleptAlone ?? false, grumpyUntil: grumpyUntil ?? 0, grumpyWhy: grumpyWhy ?? '', poops: poops ?? [], outfit: outfit ?? {}, fetchGain: fetchGain ?? 0,
   };
 }

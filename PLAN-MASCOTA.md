@@ -1,13 +1,13 @@
 # Plan: lo que le falta a Pocky
 
-> **Estado:** aprobado el 2026-10-24. Cada fase se sube a producción al terminarla y se marca aquí.
+> **Estado:** terminado el 2026-10-24. Las 11 fases están en producción.
 >
 > **Decisiones:**
 > - la racha cuenta si lo cuida cualquiera de los dos;
 > - se duerme solo a la 1:00 y se levanta a las 8:00;
 > - minijuego: lanzar la pelota en la isla.
 >
-> **Avance:** [x] 0 · [x] 1 (subidas juntas) · [x] 2 · [x] 3 · [x] 4 · [x] 5 · [x] 6 · [x] 7 · [x] 8 · [x] 9 · [ ] 10
+> **Avance:** [x] 0 · [x] 1 (subidas juntas) · [x] 2 · [x] 3 · [x] 4 · [x] 5 · [x] 6 · [x] 7 · [x] 8 · [x] 9 · [x] 10
 
 Lista pedida: silencio de noche, medicina con Pocky enfermo, historial, mimos, racha, cacas, accesorios,
 noche (se duerme solo y se levanta de malas), avisar al otro y minijuegos.

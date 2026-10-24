@@ -30,16 +30,46 @@ const DROP_H = 7, FALL = Math.sqrt((2 * DROP_H) / 18); // la golosina cae desde 
 
 type Pose = 'sit' | 'walk' | 'eat' | 'bath' | 'play' | 'heal' | 'sleep';
 // startAt: no empieza antes (p. ej. hasta que aterrice la golosina). endAt: cuando acaba la acción; hold = mínimo si llega tarde.
-type Goal = { pose: Pose; hold: number; face: XZ; until?: number; startAt?: number; endAt?: number };
+// fetch: paso del minijuego de la pelota al acabar la pose (recogerla / soltarla).
+type Goal = { pose: Pose; hold: number; face: XZ; until?: number; startAt?: number; endAt?: number; fetch?: 'pick' | 'drop' };
+
+// Minijuego: mientras juega, tocar el césped le lanza la pelota (solo la ve quien la lanza).
+// ponytail: global, como pockyPos, porque solo hay un Pocky.
+const ballThrow = { at: null as XZ | null };
+const BALL_FLY = 0.8; // segundos en el aire
+/** Lanza la pelota hacia (x, z), acercándola a un camino para que Pocky pueda llegar (nada de árboles ni agua). */
+export function throwBall(x: number, z: number) {
+  const n = NODES[nearestNode([x, z])], dx = x - n[0], dz = z - n[1], d = Math.hypot(dx, dz), k = d > 1.3 ? 1.3 / d : 1;
+  ballThrow.at = [n[0] + dx * k, n[1] + dz * k];
+}
 const TASKS: Partial<Record<PetActivity, keyof typeof POI>> = { eating: 'eat', bathing: 'bath', playing: 'play', healing: 'heal' };
 
 const SPHERE = new THREE.SphereGeometry(1, 24, 16);
 const BOX = new THREE.BoxGeometry(1, 1, 1);
+const RING = new THREE.TorusGeometry(1, 0.08, 6, 32); // franja blanca de la pelota
 const LEG = new THREE.CapsuleGeometry(0.085, 0.2, 4, 10).translate(0, -0.185, 0); // pivote arriba
 const EAR = new THREE.ConeGeometry(1, 1, 16);
 const TAIL = new THREE.TubeGeometry(new THREE.CatmullRomCurve3([
   new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0.12, -0.22), new THREE.Vector3(0.03, 0.38, -0.36), new THREE.Vector3(0.07, 0.6, -0.28),
 ]), 20, 0.09, 10);
+
+/**
+ * Mientras juega, un plano invisible sobre la isla recoge los toques para lanzar la pelota. Pocky y las cacas
+ * van por encima (paran el evento); arrastrar sigue girando la cámara (delta grande = no es un toque).
+ */
+export function BallField() {
+  const playing = usePetStore(s => s.activity === 'playing' && !s.isAsleep);
+  if (!playing) return null;
+  return (
+    <mesh
+      rotation-x={-Math.PI / 2} position-y={0.03}
+      onClick={e => { if (e.delta > 8) return; e.stopPropagation(); throwBall(e.point.x, e.point.z); }}
+    >
+      <planeGeometry args={[20, 16]} />
+      <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+    </mesh>
+  );
+}
 
 function route(from: XZ, to: NodeId): XZ[] {
   return findPath(nearestNode(from), to).map(id => NODES[id]);
@@ -90,6 +120,7 @@ export default function Pocky() {
       snot: new THREE.MeshStandardMaterial({ color: '#d4f0c4', transparent: true, opacity: 0.7, roughness: 0.15 }),
       cheek: new THREE.MeshBasicMaterial({ color: '#9ccc7a', transparent: true, opacity: 0.55 }),
       cross: new THREE.MeshBasicMaterial({ color: '#ff5c7a' }),
+      ball: toon('#ff5c5c'),
     };
   }, []);
 
@@ -108,16 +139,19 @@ export default function Pocky() {
 
   const treatRef = useRef<THREE.Group>(null!);
   const treatShadow = useRef<THREE.Mesh>(null!);
+  const ballRef = useRef<THREE.Group>(null!);
 
   const brain = useRef({
     route: [] as XZ[], goal: null as Goal | null, fast: false, restUntil: 2, hop: -9, rigY: 0,
     treat: null as null | { x: number; z: number; t0: number },
+    ball: null as null | { from: XZ; to: XZ; t0: number; state: 'flying' | 'ground' | 'carried' },
   });
 
   // Qué hace Pocky cuando cambia el estado compartido (botones de cualquiera de los dos móviles).
   useEffect(() => {
     const b = brain.current, p = root.current.position, here: XZ = [p.x, p.z];
     const dropTreat = () => { b.treat = null; setTreatKind(null); };
+    if (activity !== 'playing') b.ball = null; // se acabó la partida: fuera pelota
     if (isAsleep) {
       dropTreat();
       b.route = route(here, POI.sleep.node);
@@ -162,6 +196,19 @@ export default function Pocky() {
     const slow = mood === 'sad' || mood === 'sick' ? 0.6 : 1;
     let pose: Pose = 'sit';
 
+    // Pelota lanzada: corre a por ella (llega cuando aterriza), la recoge, la trae al sitio de juego y la suelta.
+    if (ballThrow.at) {
+      const to = ballThrow.at;
+      ballThrow.at = null;
+      if (activity === 'playing' && b.ball?.state !== 'carried') {
+        b.ball = { from: [to[0], to[1] + 4], to, t0: t, state: 'flying' }; // viene desde la cámara, en parábola
+        const node = nearestNode(to), [nx, nz] = NODES[node], dx = nx - to[0], dz = nz - to[1], d = Math.hypot(dx, dz) || 1;
+        b.route = [...route([p.x, p.z], node), [to[0] + (dx / d) * 0.55, to[1] + (dz / d) * 0.55]]; // se para delante, del lado del camino
+        b.goal = { pose: 'eat', hold: 0.5, face: to, startAt: t + BALL_FLY, fetch: 'pick' };
+        b.fast = true;
+      }
+    }
+
     if (b.route.length) {
       const [tx, tz] = b.route[0], dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz);
       if (d < 0.05) {
@@ -187,8 +234,19 @@ export default function Pocky() {
       turn(g, Math.atan2(b.goal.face[0] - p.x, b.goal.face[1] - p.z), dt);
     } else {
       if (b.goal && b.treat) { b.treat = null; setTreatKind(null); } // se la terminó
+      const fetch = b.goal?.fetch;
       b.goal = null;
-      if (t > b.restUntil) {
+      if (fetch === 'pick' && b.ball) { // la coge con la boca y la trae
+        b.ball.state = 'carried';
+        b.route = route([p.x, p.z], POI.play.node);
+        b.goal = { pose: 'sit', hold: 0.6, face: POI.play.face, fetch: 'drop' };
+        b.fast = true;
+      } else if (fetch === 'drop' && b.ball) { // la suelta delante, cuenta (+felicidad) y sigue jugando
+        b.ball = { ...b.ball, state: 'ground', to: [p.x + Math.sin(g.rotation.y) * 0.7, p.z + Math.cos(g.rotation.y) * 0.7] };
+        usePetStore.getState().act('fetch');
+        const endAt = t + ((usePetStore.getState().activityUntil ?? 0) - Date.now()) / 1000;
+        b.goal = { pose: 'play', hold: 1, face: POI.play.face, endAt, until: Math.max(t + 1, endAt) };
+      } else if (t > b.restUntil) {
         const here = nearestNode([p.x, p.z]), options = WANDER.filter(n => n !== here);
         b.route = route([p.x, p.z], options[Math.floor(Math.random() * options.length)]);
       }
@@ -196,6 +254,17 @@ export default function Pocky() {
     pockyPos.copy(p);
     ui.v.set(p.x, 2.3 + b.rigY, p.z).project(state.camera);
     ui.anchor.style.transform = `translate(${((ui.v.x + 1) / 2) * state.size.width}px, ${((1 - ui.v.y) / 2) * state.size.height}px)`;
+
+    // ---- Pelota: en parábola, en el suelo o en la boca de Pocky ----
+    const bl = b.ball;
+    ballRef.current.visible = !!bl;
+    if (bl?.state === 'flying') {
+      const u = Math.min(1, (t - bl.t0) / BALL_FLY);
+      ballRef.current.position.set(bl.from[0] + (bl.to[0] - bl.from[0]) * u, 0.18 + 10 * u * (1 - u), bl.from[1] + (bl.to[1] - bl.from[1]) * u);
+      if (u >= 1) bl.state = 'ground';
+    } else if (bl?.state === 'carried') {
+      ballRef.current.position.set(p.x + Math.sin(g.rotation.y) * 0.72, 0.9 + b.rigY, p.z + Math.cos(g.rotation.y) * 0.72);
+    } else if (bl) ballRef.current.position.set(bl.to[0], 0.18, bl.to[1]);
 
     // ---- Golosina: cae girando (gravedad), rebota con aplastamiento y se come a mordiscos ----
     const tr = b.treat;
@@ -336,6 +405,10 @@ export default function Pocky() {
         </mesh>
       </>
     )}
+    <group ref={ballRef} visible={false}>
+      <Part geometry={SPHERE} material={mat.ball} scale={0.18} shadow />
+      <mesh geometry={RING} material={mat.white} rotation-x={Math.PI / 2} scale={0.182} />
+    </group>
     <group ref={root} position={[pockyPos.x, 0, pockyPos.z]} scale={1.2} onClick={onTap}>
       <group ref={rig}>
         <group ref={body} position={[0, 0.46, 0]}>

@@ -144,7 +144,8 @@ export default function PetScreen() {
   const highlight = busy
     ? (actions.find(a => a.id === pressed && a.activityId === pet.activity) ?? actions.find(a => a.activityId === pet.activity))?.id
     : SUGGEST[pet.needs?.[0]?.id ?? ''];
-  const highlightLabel = actions.find(a => a.id === highlight)?.label;
+  // Jugando: la píldora explica el minijuego (tocar el césped lanza la pelota, ver BallField).
+  const highlightLabel = pet.activity === 'playing' ? 'Toca el césped para lanzarle la pelota 🎾' : actions.find(a => a.id === highlight)?.label;
   const offline = !splash && !pet.isConnected;
 
   return (

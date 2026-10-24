@@ -175,6 +175,18 @@ assert.deepEqual(applyAction(dressed, 'wear', t0, 'bell').outfit, { head: 'bow',
 assert.equal(applyAction(dressed, 'wear', t0, 'bow').outfit.head, '', 'el que lleva puesto: se lo quita');
 assert.equal(new Set(ACCESSORIES.map(a => a.id)).size, ACCESSORIES.length);
 
+// Pelota: solo jugando; +3 por pelota hasta +20 por partida; cada una alarga la partida.
+assert.equal(applyAction(base, 'fetch', t0), null, 'sin jugar no hay pelota');
+const game = applyAction({ ...base, happiness: 40 }, 'play', t0);
+const got = applyAction(game, 'fetch', t0 + 15000);
+assert.equal(got.fetchGain, 3);
+assert.equal(got.activityUntil, t0 + 23000, 'a 5 s del final: la alarga 8 s');
+let fetched = got;
+for (let i = 0; i < 10; i++) fetched = applyAction(fetched, 'fetch', t0 + 16000) ?? fetched;
+assert.equal(fetched.fetchGain, 21, 'tope: a partir de 20 ya no suma (la última que entra deja 21)');
+assert.equal(applyAction(fetched, 'fetch', t0 + 16000), null);
+assert.equal(applyAction({ ...fetched, activity: 'idle', activityUntil: 0, happiness: 40 }, 'play', t0 + 60000).fetchGain, 0, 'partida nueva: desde 0');
+
 // syncedFields: nunca escribe nombre, fecha de nacimiento ni tokens; sí la hora de fin de la acción.
 const fields = syncedFields({ ...fed, fcmTokens: ['x'] });
 assert.ok(!('createdAt' in fields) && !('fcmTokens' in fields) && !('name' in fields));

@@ -5,7 +5,7 @@ import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import Island from './Island';
-import Pocky, { pockyPos } from './Pocky';
+import Pocky, { pockyPos, BallField } from './Pocky';
 import Poops from './Poops';
 import { getTimePhase } from '@/lib/timeBackground';
 
@@ -93,6 +93,7 @@ export default function World({ hour, onReady, onTint }: { hour: number; onReady
       <Island waterColor={ph.water} sky={ph.sky} glow={ph.glow} />
       <Pocky />
       <Poops />
+      <BallField />
       <CameraRig />
       <FirstFrame onReady={onReady} />
       {onTint && <StatusTint onTint={onTint} />}
