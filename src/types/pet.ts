@@ -45,4 +45,5 @@ export interface LogEntry {
 export interface Device {
   name?:  string; // "¿Cómo te llamas?" la primera vez que se abre
   token?: string; // token FCM de ese móvil
+  partnerSeen?: number; // hasta cuándo se le ha contado lo que hizo el otro (lo escribe el cron)
 }

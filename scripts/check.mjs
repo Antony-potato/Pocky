@@ -1,7 +1,7 @@
 // Checks mínimos de la lógica pura. Ejecutar: npm run check (Node >= 23, quita los tipos de .ts solo).
 import assert from 'node:assert/strict';
 import { NODES, findPath, nearestNode, WANDER, POI, TREAT_SPOTS } from '../src/components/scene/nav.ts';
-import { applyTick, applyAction, syncedFields, computeAge, currentStreak, DEFAULT_PET, cancunHour, cancunDay, isQuietHour } from '../src/lib/petLogic.ts';
+import { applyTick, applyAction, syncedFields, computeAge, currentStreak, partnerSummary, DEFAULT_PET, cancunHour, cancunDay, isQuietHour } from '../src/lib/petLogic.ts';
 
 // Hora de Cancún (UTC−5 todo el año), da igual la zona del móvil o del servidor.
 const utc = (d, h, m = 0) => Date.UTC(2026, 9, d, h, m);
@@ -92,6 +92,18 @@ assert.equal(currentStreak(s2, utc(26, 20)), 2, 'al día siguiente aún se ve (h
 assert.equal(currentStreak(s2, utc(27, 6)), 0, 'un día entero sin cuidados: perdida');
 assert.equal(applyAction({ ...s2, activity: 'idle' }, 'feed', utc(27, 15)).streak, 1, 'tras perderla vuelve a 1');
 assert.equal(applyAction(s2, 'cuddle', utc(26, 15)).streakDay, '2026-10-25', 'los mimos no cuentan para la racha');
+
+// Avisar al otro: resumen de lo que hizo la pareja, agrupado y sin spam.
+const M = 60000;
+const couple = { ...base, name: 'Pocky', devices: { a: { name: 'Ana', token: 'ta' }, b: { name: 'Leo', token: 'tb' }, a2: { name: 'Ana' } },
+  log: [{ by: 'a', a: 'feed', t: t0 }, { by: 'a', a: 'bathe', t: t0 + 2 * M }, { by: 'a', a: 'cuddle', t: t0 + 3 * M }, { by: 'a', a: 'feed', t: t0 + 4 * M }] };
+assert.equal(partnerSummary(couple, 'b', t0 + 6 * M), null, 'espera a que acabe la tanda (última hace < 5 min)');
+assert.deepEqual(partnerSummary(couple, 'b', t0 + 10 * M), { title: 'Ana cuidó a Pocky', body: 'comida 🍖 y baño 🛁' }, 'sin repetidos ni mimos');
+assert.equal(partnerSummary(couple, 'a', t0 + 10 * M), null, 'lo mío no me lo cuenta');
+assert.equal(partnerSummary(couple, 'a2', t0 + 10 * M), null, 'ni lo de otro móvil con mi mismo nombre');
+const told = { ...couple, devices: { ...couple.devices, b: { ...couple.devices.b, partnerSeen: t0 + 10 * M } } };
+assert.equal(partnerSummary({ ...told, log: [...told.log, { by: 'a', a: 'play', t: t0 + 12 * M }] }, 'b', t0 + 20 * M), null, 'como mucho un resumen cada 30 min');
+assert.equal(partnerSummary(couple, 'b', t0 + 7 * 60 * M), null, 'lo de hace más de 6 h ya no se cuenta');
 
 // syncedFields: nunca escribe nombre, fecha de nacimiento ni tokens; sí la hora de fin de la acción.
 const fields = syncedFields({ ...fed, fcmTokens: ['x'] });

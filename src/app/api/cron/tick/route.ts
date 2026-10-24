@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
-import { applyTick, cancunDay, cancunHour, currentStreak, getNeeds, isQuietHour } from '@/lib/petLogic';
+import { applyTick, cancunDay, cancunHour, currentStreak, getNeeds, isQuietHour, partnerSummary } from '@/lib/petLogic';
 import { PetData } from '@/types/pet';
 
 // firebase-admin no funciona en edge: esta ruta se queda en el runtime de Node.
@@ -93,6 +93,14 @@ export async function GET(req: NextRequest) {
     if (streak >= 2 && pet.streakDay !== today && pet.streakWarned !== today && cancunHour(now) >= 20 && !isQuietHour(now)) {
       await send(everyone, { title: `🔥 ¡La racha de ${streak} días se pierde hoy!`, body: `Nadie ha cuidado a ${pet.name} hoy. ¡Aún hay tiempo!`, tag: 'racha' }, 4 * HOUR);
       update.streakWarned = today;
+    }
+
+    // Avisar al otro: a cada móvil, resumen de lo que hizo su pareja (ver partnerSummary). De noche se espera.
+    if (!isQuietHour(now)) for (const [id, d] of Object.entries(devices)) {
+      const msg = d.token ? partnerSummary(pet, id, now) : null;
+      if (!msg) continue;
+      await send([d.token!], { ...msg, tag: 'pareja' }, 2 * HOUR);
+      update[`devices.${id}.partnerSeen`] = now;
     }
 
     // Tokens muertos: fuera de la lista vieja y de su móvil (el móvil crea otro al abrir la app).

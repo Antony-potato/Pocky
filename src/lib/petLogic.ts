@@ -164,6 +164,28 @@ function cared(s: PetData, now: number): Partial<PetData> {
   return { totalCaresGiven: (s.totalCaresGiven ?? 0) + 1, streak, streakDay: today };
 }
 
+// ----- Avisar al otro: resumen de lo que hizo la pareja (lo manda el cron) -----
+const CARE_NOUN: Record<string, string> = {
+  feed: 'comida 🍖', treat: 'golosina 🍬', bathe: 'baño 🛁', walk: 'paseo 🌳', play: 'juego 🎮',
+  sleep: 'a dormir 🌙', wake: 'despertar ☀️',
+};
+const list = (xs: string[]) => new Intl.ListFormat('es', { type: 'conjunction' }).format(xs); // "a, b y c"
+const PARTNER_EVERY = 30 * 60000; // como mucho un resumen cada 30 min por móvil
+const PARTNER_SETTLE = 5 * 60000; // espera a que acabe la tanda (dio de comer y a los 2 min lo bañó → un aviso)
+const PARTNER_WINDOW = 6 * 3600000; // lo más viejo (p. ej. de anoche, en silencio) ya no se cuenta
+
+/** Qué contarle al móvil `id` de lo que hizo el otro desde su último resumen. null = nada (o aún no toca). */
+export function partnerSummary(s: PetData, id: string, now = Date.now()): { title: string; body: string } | null {
+  const me = s.devices?.[id], seen = me?.partnerSeen ?? 0;
+  if (now - seen < PARTNER_EVERY) return null;
+  // Del otro: ni mías ni de otro móvil con mi mismo nombre (mi iPad). Sin mimos, que serían spam.
+  const news = (s.log ?? []).filter(e => e.t > seen && now - e.t < PARTNER_WINDOW && e.by !== id && CARE_NOUN[e.a]
+    && (!me?.name || s.devices?.[e.by]?.name !== me.name));
+  if (!news.length || now - news[news.length - 1].t < PARTNER_SETTLE) return null;
+  const who = list([...new Set(news.map(e => s.devices?.[e.by]?.name ?? 'Alguien'))]);
+  return { title: `${who} cuidó a ${s.name}`, body: list([...new Set(news.map(e => CARE_NOUN[e.a]))]) };
+}
+
 /** Racha que se ve: si el último día con cuidado no fue hoy ni ayer, ya se perdió. */
 export function currentStreak(s: PetData, now = Date.now()): number {
   return s.streakDay === cancunDay(now) || s.streakDay === cancunDay(now - 86400000) ? s.streak ?? 0 : 0;
