@@ -3,6 +3,7 @@
 // - iOS retira la suscripción si llegan pushes sin notificación visible, y el SDK de FCM no la
 //   mostraba cuando creía que la app estaba abierta → en iPhone dejaban de llegar.
 // - `tag`: si llegan varias juntas (Android en reposo), se ven como una sola en vez de una pila.
+//   Cada tipo trae el suyo (necesidades, pareja, racha…) para que uno no tape a otro.
 self.addEventListener('push', (event) => {
   let msg = {};
   try { msg = event.data ? event.data.json() : {}; } catch { msg = { data: { body: event.data.text() } }; }
@@ -11,7 +12,7 @@ self.addEventListener('push', (event) => {
     body: n.body || '',
     icon: '/icons/iconoPwa-192.png',
     badge: '/icons/iconoPwa-192.png',
-    tag: 'pocky',
+    tag: n.tag || 'pocky',
     renotify: true,
     data: { link: n.link || '/' },
   }));

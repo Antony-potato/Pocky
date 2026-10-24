@@ -154,14 +154,27 @@ export function applyAction(s: PetData, a: PetAction, now = Date.now()): PetData
   if (r.isAsleep || r.activity !== 'idle' || refuses(r, a)) return null;
   if (a === 'sleep') return withMood({ ...r, isAsleep: true, activity: 'sleeping' });
   const e = ACTIONS[a];
-  return withMood({ ...r, activity: e.activity, activityUntil: now + e.ms, totalCaresGiven: (r.totalCaresGiven ?? 0) + 1 });
+  return withMood({ ...r, ...cared(r, now), activity: e.activity, activityUntil: now + e.ms });
+}
+
+/** Un cuidado de verdad (no mimos ni dormir): suma al contador y a la racha. */
+function cared(s: PetData, now: number): Partial<PetData> {
+  const today = cancunDay(now), streak = s.streakDay === today ? s.streak ?? 1
+    : s.streakDay === cancunDay(now - 86400000) ? (s.streak ?? 0) + 1 : 1; // Cancún no cambia de hora: 24 h = ayer
+  return { totalCaresGiven: (s.totalCaresGiven ?? 0) + 1, streak, streakDay: today };
+}
+
+/** Racha que se ve: si el último día con cuidado no fue hoy ni ayer, ya se perdió. */
+export function currentStreak(s: PetData, now = Date.now()): number {
+  return s.streakDay === cancunDay(now) || s.streakDay === cancunDay(now - 86400000) ? s.streak ?? 0 : 0;
 }
 
 /** Campos que escriben los clientes. Nunca nombre, createdAt ni tokens (así no se pisan entre móviles). */
 export function syncedFields(s: PetData) {
-  const { hunger, happiness, cleanliness, energy, health, mood, activity, isAsleep, lastUpdated, totalCaresGiven, activityUntil, lastCuddle } = s;
+  const { hunger, happiness, cleanliness, energy, health, mood, activity, isAsleep, lastUpdated, totalCaresGiven, activityUntil, lastCuddle, streak, streakDay } = s;
   return {
     hunger, happiness, cleanliness, energy, health, mood, activity, isAsleep, lastUpdated,
     totalCaresGiven: totalCaresGiven ?? 0, activityUntil: activityUntil ?? 0, lastCuddle: lastCuddle ?? 0,
+    streak: streak ?? 0, streakDay: streakDay ?? '',
   };
 }

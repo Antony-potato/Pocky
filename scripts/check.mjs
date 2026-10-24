@@ -1,7 +1,7 @@
 // Checks mínimos de la lógica pura. Ejecutar: npm run check (Node >= 23, quita los tipos de .ts solo).
 import assert from 'node:assert/strict';
 import { NODES, findPath, nearestNode, WANDER, POI, TREAT_SPOTS } from '../src/components/scene/nav.ts';
-import { applyTick, applyAction, syncedFields, computeAge, DEFAULT_PET, cancunHour, cancunDay, isQuietHour } from '../src/lib/petLogic.ts';
+import { applyTick, applyAction, syncedFields, computeAge, currentStreak, DEFAULT_PET, cancunHour, cancunDay, isQuietHour } from '../src/lib/petLogic.ts';
 
 // Hora de Cancún (UTC−5 todo el año), da igual la zona del móvil o del servidor.
 const utc = (d, h, m = 0) => Date.UTC(2026, 9, d, h, m);
@@ -79,6 +79,19 @@ assert.ok(applyAction(hug, 'cuddle', t0 + 30000), 'pasados 30 s vuelve a contar'
 assert.equal(applyAction(fed, 'cuddle', t0 + 1000).activity, 'eating', 'el mimo no interrumpe la comida');
 assert.equal(applyAction(slept, 'cuddle', t0), null, 'dormido no se entera');
 assert.equal(hug.totalCaresGiven, base.totalCaresGiven, 'los mimos no cuentan como cuidado');
+
+// Racha: días seguidos (Cancún) con algún cuidado; los mimos no cuentan.
+const day1 = { ...base, lastUpdated: utc(24, 15) };                                       // 24 oct, 10:00 Cancún
+const s1 = applyAction(day1, 'feed', utc(24, 15));
+assert.deepEqual([s1.streak, s1.streakDay], [1, '2026-10-24']);
+const s1b = applyAction({ ...s1, activity: 'idle' }, 'bathe', utc(25, 4));               // 23:00 del mismo día
+assert.equal(s1b.streak, 1, 'el mismo día no suma');
+const s2 = applyAction({ ...s1b, activity: 'idle' }, 'feed', utc(25, 6));                // 01:00 del 25 (sin energía para jugar)
+assert.equal(s2.streak, 2, 'día siguiente: +1');
+assert.equal(currentStreak(s2, utc(26, 20)), 2, 'al día siguiente aún se ve (hay tiempo para cuidarlo)');
+assert.equal(currentStreak(s2, utc(27, 6)), 0, 'un día entero sin cuidados: perdida');
+assert.equal(applyAction({ ...s2, activity: 'idle' }, 'feed', utc(27, 15)).streak, 1, 'tras perderla vuelve a 1');
+assert.equal(applyAction(s2, 'cuddle', utc(26, 15)).streakDay, '2026-10-25', 'los mimos no cuentan para la racha');
 
 // syncedFields: nunca escribe nombre, fecha de nacimiento ni tokens; sí la hora de fin de la acción.
 const fields = syncedFields({ ...fed, fcmTokens: ['x'] });

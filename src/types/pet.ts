@@ -27,6 +27,9 @@ export interface PetData {
   lastNotificationSent?: number;
   totalCaresGiven:      number;
   lastCuddle?:          number;   // último mimo que contó (máx. uno cada 30 s)
+  streak?:              number;   // días seguidos con al menos un cuidado…
+  streakDay?:           string;   // …y el último de ellos ('2026-10-24', hora de Cancún)
+  streakWarned?:        string;   // día en que el cron ya avisó de que se pierde la racha
   lastSyncedBy:         string;
   fcmTokens?:           string[]; // Tokens FCM antiguos, sin dueño (los nuevos van en `devices`)
   devices?:             Record<string, Device>; // cada móvil, por su deviceId

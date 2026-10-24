@@ -6,8 +6,8 @@ import CircularStats, { HUD_DARK, PILL } from './CircularStats';
 import ActivityLog from './ActivityLog';
 import Splash from './Splash';
 import { requestNotificationPermission } from '@/lib/messaging';
-import { computeAge, refuses, type PetAction } from '@/lib/petLogic';
-import { Utensils, Candy, ShowerHead, TreePine, Gamepad2, Moon, Sun, Bell, PawPrint, WifiOff, Wifi, History as HistoryIcon, type LucideIcon } from 'lucide-react';
+import { computeAge, currentStreak, refuses, type PetAction } from '@/lib/petLogic';
+import { Utensils, Candy, ShowerHead, TreePine, Gamepad2, Moon, Sun, Bell, PawPrint, WifiOff, Wifi, Flame, History as HistoryIcon, type LucideIcon } from 'lucide-react';
 
 // Three.js solo en el cliente (usa WebGL y window). Mientras carga, la tapa el Splash.
 const World = dynamic(() => import('./scene/World'), { ssr: false });
@@ -44,6 +44,7 @@ export default function PetScreen() {
   const prevConnected = useRef<boolean | null>(null);
   const hour = pet.isAsleep ? 22 : isMounted ? new Date().getHours() : 10;
   const petAge = isMounted && pet.createdAt ? computeAge(pet.createdAt) : null;
+  const streak = isMounted ? currentStreak(pet) : 0;
 
   useEffect(() => {
     setIsMounted(true);
@@ -154,6 +155,11 @@ export default function PetScreen() {
             </div>
             <h1 className="text-white text-xl font-black leading-none truncate">{pet.name}</h1>
             {petAge !== null && <span className="text-white/45 font-extrabold leading-none shrink-0" title={`${petAge} días con vosotros`}>{petAge}d</span>}
+            {streak > 0 && (
+              <span className="flex items-center gap-0.5 text-[#ff9f43] font-extrabold leading-none shrink-0" title={`Racha: ${streak} días seguidos cuidándolo`}>
+                <Flame size={15} fill="#ff9f43" color="#ff9f43" aria-hidden />{streak}
+              </span>
+            )}
           </div>
           <div className="flex gap-2 shrink-0">
             <button

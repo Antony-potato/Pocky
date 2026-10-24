@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
-import { applyTick, getNeeds, isQuietHour } from '@/lib/petLogic';
+import { applyTick, cancunDay, cancunHour, currentStreak, getNeeds, isQuietHour } from '@/lib/petLogic';
 import { PetData } from '@/types/pet';
 
 // firebase-admin no funciona en edge: esta ruta se queda en el runtime de Node.
@@ -86,6 +86,13 @@ export async function GET(req: NextRequest) {
     if (!isQuietHour(now) && needs.length > 0 && now - (pet.lastNotificationSent ?? 0) > cooldown - SLACK_MS) {
       await send(everyone, { title: `¡${pet.name} te necesita!`, body: needs.map(n => n.message).join(' y ') }, cooldown);
       update.lastNotificationSent = now;
+    }
+
+    // Racha en peligro: desde las 20:00 (Cancún), si nadie lo ha cuidado hoy y la racha es de 2+ días. Una vez al día.
+    const today = cancunDay(now), streak = currentStreak(pet, now);
+    if (streak >= 2 && pet.streakDay !== today && pet.streakWarned !== today && cancunHour(now) >= 20 && !isQuietHour(now)) {
+      await send(everyone, { title: `🔥 ¡La racha de ${streak} días se pierde hoy!`, body: `Nadie ha cuidado a ${pet.name} hoy. ¡Aún hay tiempo!`, tag: 'racha' }, 4 * HOUR);
+      update.streakWarned = today;
     }
 
     // Tokens muertos: fuera de la lista vieja y de su móvil (el móvil crea otro al abrir la app).
