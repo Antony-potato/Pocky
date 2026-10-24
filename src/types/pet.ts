@@ -26,6 +26,7 @@ export interface PetData {
   lastUpdated:          number;   // timestamp ms
   lastNotificationSent?: number;
   totalCaresGiven:      number;
+  lastCuddle?:          number;   // último mimo que contó (máx. uno cada 30 s)
   lastSyncedBy:         string;
   fcmTokens?:           string[]; // Tokens FCM antiguos, sin dueño (los nuevos van en `devices`)
   devices?:             Record<string, Device>; // cada móvil, por su deviceId

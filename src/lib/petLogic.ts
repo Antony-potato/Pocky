@@ -106,14 +106,18 @@ export function computeAge(createdAt: number, now = Date.now()): number {
   return Math.max(0, Math.round((day(now) - day(createdAt)) / 86400000));
 }
 
-export type PetAction = 'feed' | 'treat' | 'bathe' | 'walk' | 'play' | 'sleep' | 'wake';
+export type PetAction = 'feed' | 'treat' | 'bathe' | 'walk' | 'play' | 'sleep' | 'wake' | 'cuddle';
+
+// Mimos (tocar a Pocky): +3 de felicidad, como mucho uno cada 30 s. No cuentan como cuidado (ni racha ni accesorios).
+export const CUDDLE_MS = 30000;
+const CUDDLE_GAIN = 3;
 
 type Stat = 'hunger' | 'happiness' | 'cleanliness' | 'energy' | 'health';
 type Effect = { activity: PetActivity; ms: number; full: Stat; gain: Partial<Record<Stat, number>>; minEnergy?: number };
 
 // Cada acción dura `ms` y reparte `gain` poco a poco mientras dura (en applyTick), como dormir.
 // La golosina dura menos pero da más: cae del cielo y Pocky va a por ella.
-const ACTIONS: Record<Exclude<PetAction, 'sleep' | 'wake'>, Effect> = {
+const ACTIONS: Record<Exclude<PetAction, 'sleep' | 'wake' | 'cuddle'>, Effect> = {
   feed:  { activity: 'eating',   ms: 20000, full: 'hunger',      gain: { hunger: 15, happiness: 5 } },
   treat: { activity: 'snacking', ms: 12000, full: 'hunger',      gain: { hunger: 25, happiness: 10 } },
   bathe: { activity: 'bathing',  ms: 20000, full: 'cleanliness', gain: { cleanliness: 40, health: 5 } },
@@ -127,7 +131,7 @@ export const FULL = 90;
 
 /** No quiere hacerlo: ya está lleno de eso, o no tiene energía para moverse. */
 export function refuses(s: PetData, a: PetAction): boolean {
-  if (a === 'wake') return false;
+  if (a === 'wake' || a === 'cuddle') return false;
   if (a === 'sleep') return s.energy >= FULL;
   const e = ACTIONS[a];
   return s[e.full] >= FULL || s.energy < (e.minEnergy ?? 0);
@@ -144,6 +148,9 @@ export function applyAction(s: PetData, a: PetAction, now = Date.now()): PetData
   const r: PetData = { ...s, ...applyTick(s, now), lastUpdated: now };
   // Despertar no regala energía: la que tiene es la que recuperó durmiendo (antes +30: dormir/despertar llenaba la barra).
   if (a === 'wake') return r.isAsleep ? withMood({ ...r, isAsleep: false, activity: 'idle' }) : null;
+  // Mimos: también mientras hace otra cosa (no la interrumpen); dormido no se entera.
+  if (a === 'cuddle') return r.isAsleep || now - (r.lastCuddle ?? 0) < CUDDLE_MS ? null
+    : withMood({ ...r, happiness: clamp(r.happiness + CUDDLE_GAIN), lastCuddle: now });
   if (r.isAsleep || r.activity !== 'idle' || refuses(r, a)) return null;
   if (a === 'sleep') return withMood({ ...r, isAsleep: true, activity: 'sleeping' });
   const e = ACTIONS[a];
@@ -152,6 +159,9 @@ export function applyAction(s: PetData, a: PetAction, now = Date.now()): PetData
 
 /** Campos que escriben los clientes. Nunca nombre, createdAt ni tokens (así no se pisan entre móviles). */
 export function syncedFields(s: PetData) {
-  const { hunger, happiness, cleanliness, energy, health, mood, activity, isAsleep, lastUpdated, totalCaresGiven, activityUntil } = s;
-  return { hunger, happiness, cleanliness, energy, health, mood, activity, isAsleep, lastUpdated, totalCaresGiven: totalCaresGiven ?? 0, activityUntil: activityUntil ?? 0 };
+  const { hunger, happiness, cleanliness, energy, health, mood, activity, isAsleep, lastUpdated, totalCaresGiven, activityUntil, lastCuddle } = s;
+  return {
+    hunger, happiness, cleanliness, energy, health, mood, activity, isAsleep, lastUpdated,
+    totalCaresGiven: totalCaresGiven ?? 0, activityUntil: activityUntil ?? 0, lastCuddle: lastCuddle ?? 0,
+  };
 }

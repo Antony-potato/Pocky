@@ -71,6 +71,15 @@ const nap = applyTick({ ...slept, energy: 20 }, t0 + 20000);
 assert.ok(Math.abs(nap.energy - 21) < 1e-9, `20 s dormido: +1 de energía (dio ${nap.energy})`);
 assert.equal(applyAction(woke2, 'wake', t0), null, 'dos móviles pulsando despertar no suman energía dos veces');
 
+// Mimos: +3, como mucho uno cada 30 s, también mientras come; dormido no.
+const hug = applyAction(base, 'cuddle', t0);
+assert.equal(hug.happiness, base.happiness + 3);
+assert.equal(applyAction(hug, 'cuddle', t0 + 10000), null, 'mimos seguidos: solo cuenta uno cada 30 s');
+assert.ok(applyAction(hug, 'cuddle', t0 + 30000), 'pasados 30 s vuelve a contar');
+assert.equal(applyAction(fed, 'cuddle', t0 + 1000).activity, 'eating', 'el mimo no interrumpe la comida');
+assert.equal(applyAction(slept, 'cuddle', t0), null, 'dormido no se entera');
+assert.equal(hug.totalCaresGiven, base.totalCaresGiven, 'los mimos no cuentan como cuidado');
+
 // syncedFields: nunca escribe nombre, fecha de nacimiento ni tokens; sí la hora de fin de la acción.
 const fields = syncedFields({ ...fed, fcmTokens: ['x'] });
 assert.ok(!('createdAt' in fields) && !('fcmTokens' in fields) && !('name' in fields));

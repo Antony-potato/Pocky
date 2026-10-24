@@ -272,6 +272,7 @@ export default function Pocky() {
 
   const onTap = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
+    usePetStore.getState().act('cuddle'); // los corazones salen siempre; la felicidad, como mucho cada 30 s
     brain.current.hop = clock.elapsedTime;
     for (let i = 0; i < 5; i++) {
       const h = document.createElement('span');
