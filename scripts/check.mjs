@@ -1,7 +1,7 @@
 // Checks mínimos de la lógica pura. Ejecutar: npm run check (Node >= 23, quita los tipos de .ts solo).
 import assert from 'node:assert/strict';
-import { NODES, findPath, nearestNode, WANDER, POI, TREAT_SPOTS } from '../src/components/scene/nav.ts';
-import { applyTick, applyAction, getNeeds, clamp, syncedFields, computeAge, currentStreak, partnerSummary, DEFAULT_PET, cancunHour, cancunDay, isQuietHour } from '../src/lib/petLogic.ts';
+import { NODES, EDGES, findPath, nearestNode, WANDER, POI, TREAT_SPOTS, POOP_XZ } from '../src/components/scene/nav.ts';
+import { applyTick, applyAction, getNeeds, clamp, visiblePoops, POOP_SPOTS, syncedFields, computeAge, currentStreak, partnerSummary, DEFAULT_PET, cancunHour, cancunDay, isQuietHour } from '../src/lib/petLogic.ts';
 
 // Hora de Cancún (UTC−5 todo el año), da igual la zona del móvil o del servidor.
 const utc = (d, h, m = 0) => Date.UTC(2026, 9, d, h, m);
@@ -136,6 +136,35 @@ assert.equal(applyAction({ ...base, energy: 95, lastUpdated: utc(25, 4) }, 'slee
 const woken = applyAction(at7, 'wake', utc(25, 12));
 assert.deepEqual([woken.mood, woken.grumpyWhy], ['grumpy', 'woken'], 'despertarlo de noche: de malas');
 assert.equal(applyTick(woken, utc(25, 12, 15)).isAsleep, false, 'desvelado: no se vuelve a dormir solo enseguida');
+
+// Cacas: comer programa una 2 h después (máx. 3), ensucia más deprisa, se limpian tocándolas (cuenta como cuidado).
+const H = 3600000;
+const ate = applyAction(base, 'feed', t0);
+assert.equal(ate.poops.length, 1);
+assert.equal(visiblePoops(ate, t0 + H).length, 0, 'aún no (sale a las 2 h)');
+assert.equal(visiblePoops(ate, t0 + 2 * H).length, 1);
+assert.equal(getNeeds({ ...ate, lastUpdated: t0 + 2 * H }, t0 + 2 * H).some(n => n.id === 'poop'), true);
+const dirty = applyTick({ ...ate, cleanliness: 50, activity: 'idle', lastUpdated: t0 + 2 * H }, t0 + 2 * H + 10 * M);
+const clean = applyTick({ ...ate, cleanliness: 50, activity: 'idle', poops: [], lastUpdated: t0 + 2 * H }, t0 + 2 * H + 10 * M);
+assert.ok(dirty.cleanliness < clean.cleanliness, 'con caca se ensucia más deprisa');
+const spot = ate.poops[0].spot;
+assert.equal(applyAction(ate, 'clean', t0 + H, spot), null, 'no se limpia una que aún no ha salido');
+const cleaned = applyAction(ate, 'clean', t0 + 2 * H, spot);
+assert.equal(cleaned.poops.length, 0);
+assert.equal(cleaned.totalCaresGiven, ate.totalCaresGiven + 1, 'limpiar cuenta como cuidado');
+let full = { ...base, poops: [] };
+for (let i = 0; i < 5; i++) full = { ...applyAction({ ...full, hunger: 10, activity: 'idle', lastUpdated: t0 }, 'feed', t0) };
+assert.equal(full.poops.length, 3, 'como mucho 3');
+assert.equal(new Set(full.poops.map(p => p.spot)).size, 3, 'cada una en su sitio');
+assert.equal(POOP_XZ.length, POOP_SPOTS);
+for (const [x, z] of POOP_XZ) {
+  assert.ok(EDGES.every(([a, b]) => { // lejos de por donde anda Pocky
+    const [ax, az] = NODES[a], [bx, bz] = NODES[b], dx = bx - ax, dz = bz - az;
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz)));
+    return Math.hypot(x - ax - dx * t, z - az - dz * t) > 0.6;
+  }), `caca en [${x}, ${z}] demasiado cerca de un camino de Pocky`);
+  assert.ok((x / 9.6) ** 2 + (z / 7.4) ** 2 < 0.75, `caca en [${x}, ${z}] demasiado cerca del borde`);
+}
 
 // syncedFields: nunca escribe nombre, fecha de nacimiento ni tokens; sí la hora de fin de la acción.
 const fields = syncedFields({ ...fed, fcmTokens: ['x'] });

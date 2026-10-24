@@ -14,6 +14,7 @@ const VERB: Record<string, [string, string, string]> = {
   sleep: ['🌙', 'acostó a', 'acostaste a'],
   wake: ['☀️', 'despertó a', 'despertaste a'],
   cuddle: ['❤️', 'dio mimos a', 'diste mimos a'],
+  clean: ['💩', 'limpió una caca de', 'limpiaste una caca de'],
 };
 
 function ago(t: number, now: number) {

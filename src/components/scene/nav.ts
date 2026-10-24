@@ -31,6 +31,10 @@ export const POI = {
 // (la golosina se desvía ≤0.35 del nodo y Pocky se para a 0.8 de ella).
 export const TREAT_SPOTS: NodeId[] = ['s', 'c', 'field', 'meadow', 'play'];
 
+// Claros de césped donde aparecen las cacas (petLogic guarda el índice): lejos de caminos, aristas, árboles,
+// arbustos, rocas, casa y estanques. Elegidos con un barrido de la isla; `npm run check` comprueba lo básico.
+export const POOP_XZ: XZ[] = [[-1.75, -3], [0, 5.75], [7, -1.5], [-6.25, 3.5], [2.75, 1.25]];
+
 export const WANDER: NodeId[] = ['s2', 's', 'c', 'n2', 'garden', 'meadow', 'field', 'southR', 'picnic', 'play', 'door'];
 export const TOUR: NodeId[] = ['n2', 's2', 'meadow', 'c'];
 

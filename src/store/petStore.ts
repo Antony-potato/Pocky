@@ -30,7 +30,8 @@ interface PetStore extends PetData {
   /** Código del último error de sesión/permisos (p. ej. 'permission-denied'), para mostrarlo en el aviso. */
   syncError: string | null;
 
-  act: (a: PetAction) => void;
+  /** `spot`: qué caca se limpia (solo para `clean`). */
+  act: (a: PetAction, spot?: number) => void;
   tick: () => void;
   startListening: () => () => void;
   registerFCMToken: (token: string) => Promise<void>;
@@ -89,14 +90,14 @@ export const usePetStore = create<PetStore>((set, get) => {
     hasData: false,
     syncError: null,
 
-    act: (a) => {
-      const next = applyAction(get(), a);
+    act: (a, spot) => {
+      const next = applyAction(get(), a, undefined, spot);
       if (!next) return;
       set({ ...next, needs: getNeeds(next) }); // respuesta inmediata en pantalla
       // Mimos al historial como mucho uno cada 10 min por móvil (si no, una tanda de toques lo llena).
       const me = getDeviceId();
       const spam = a === 'cuddle' && get().log?.some(e => e.a === 'cuddle' && e.by === me && Date.now() - e.t < 10 * 60000);
-      save(server => applyAction(server, a), spam ? undefined : a); // termina sola en `activityUntil` (applyTick), sin más escrituras
+      save(server => applyAction(server, a, undefined, spot), spam ? undefined : a); // termina sola en `activityUntil` (applyTick), sin más escrituras
     },
 
     // Degradación local cada 20 s (cada 1 s durante una acción), solo para la pantalla. NUNCA escribe en la BD (eso es del cron y de las acciones).

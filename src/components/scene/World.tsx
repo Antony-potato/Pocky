@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import Island from './Island';
 import Pocky, { pockyPos } from './Pocky';
+import Poops from './Poops';
 import { getTimePhase } from '@/lib/timeBackground';
 
 const OFFSET: [number, number, number] = [0, 10, 12]; // cámara respecto al punto que mira: vista isométrica ~40°
@@ -91,6 +92,7 @@ export default function World({ hour, onReady, onTint }: { hour: number; onReady
       <Lights hour={hour} />
       <Island waterColor={ph.water} sky={ph.sky} glow={ph.glow} />
       <Pocky />
+      <Poops />
       <CameraRig />
       <FirstFrame onReady={onReady} />
       {onTint && <StatusTint onTint={onTint} />}
