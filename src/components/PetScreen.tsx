@@ -5,10 +5,15 @@ import { usePetStore, getDeviceId } from '@/store/petStore';
 import CircularStats, { HUD_DARK, PILL } from './CircularStats';
 import ActivityLog from './ActivityLog';
 import Wardrobe from './Wardrobe';
+import SettingsPanel from './Settings';
 import Splash from './Splash';
+import { fetchWeather, weatherKind, WEATHER_LABEL, type Weather, type WeatherKind } from '@/lib/weather';
 import { requestNotificationPermission } from '@/lib/messaging';
 import { computeAge, currentStreak, refuses, MEDICINE_BELOW, ACCESSORIES, type PetAction } from '@/lib/petLogic';
-import { Utensils, Candy, ShowerHead, TreePine, Gamepad2, Pill, Moon, Sun, Bell, PawPrint, WifiOff, Wifi, Flame, Shirt, History as HistoryIcon, type LucideIcon } from 'lucide-react';
+import { Utensils, Candy, ShowerHead, TreePine, Gamepad2, Pill, Moon, Sun, Settings, PawPrint, WifiOff, Wifi, Flame, Shirt, History as HistoryIcon,
+  Cloud, CloudFog, CloudRain, CloudSnow, CloudLightning, type LucideIcon } from 'lucide-react';
+
+const WEATHER_ICON: Record<WeatherKind, LucideIcon> = { clear: Sun, cloudy: Cloud, fog: CloudFog, rain: CloudRain, snow: CloudSnow, storm: CloudLightning };
 
 // Three.js solo en el cliente (usa WebGL y window). Mientras carga, la tapa el Splash.
 const World = dynamic(() => import('./scene/World'), { ssr: false });
@@ -33,8 +38,25 @@ const SIZES = {
 // Con 7 botones (medicina) más pequeños: si no, en 320-390 px el dock se sale de la pantalla.
 const SIZES_7 = { '--btn': 'clamp(2.2rem, min(11vw, 9svh), 3.5rem)' } as React.CSSProperties;
 
-export default function PetScreen() {
+export default function PetScreen({ petId, homes, me, admin }: {
+  petId: string; homes: { id: string; name: string }[]; me: { uid: string; name: string; email: string }; admin: boolean;
+}) {
   const pet = usePetStore();
+  const [showSettings, setShowSettings] = useState(false);
+  // Clima real de la ciudad del hogar (Ajustes): al entrar, al cambiarla y cada 15 min.
+  const [weather, setWeather] = useState<Weather | null>(null);
+  const city = pet.city, cityKey = city ? `${city.lat},${city.lon}` : '';
+  useEffect(() => {
+    if (!city) return setWeather(null);
+    let on = true;
+    const load = () => fetchWeather(city).then(w => { if (on) setWeather(w); }).catch(() => {}); // sin red: se queda el último
+    load();
+    const i = setInterval(load, 15 * 60000);
+    return () => { on = false; clearInterval(i); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cityKey]);
+  const kind = weather ? weatherKind(weather.code) : 'clear';
+  const WeatherIcon = kind === 'clear' && weather && !weather.isDay ? Moon : WEATHER_ICON[kind];
   const [isMounted, setIsMounted] = useState(false);
   const [pressed, setPressed] = useState<string | null>(null);
   const [splash, setSplash] = useState(true);
@@ -71,9 +93,10 @@ export default function PetScreen() {
 
   useEffect(() => {
     if (!isMounted) return;
-    const unsub = pet.startListening();
-    // Nombre de este móvil (historial, avisos al otro). Si ya lo tiene se reenvía por si el doc no lo guarda aún.
-    const name = localStorage.getItem('pocky_name');
+    const unsub = pet.startListening(petId);
+    // Nombre de este móvil (historial, avisos al otro): el que puso aquí o, si no, el de su cuenta de Google.
+    // Se reenvía por si el doc no lo guarda aún.
+    const name = localStorage.getItem('pocky_name') || me.name;
     if (name) pet.setName(name); else setAskName(true);
     // Si ya hay permiso, renueva el token en silencio (sin prompt): los tokens caducan y si no se
     // actualizan dejan de llegar notificaciones a ese móvil.
@@ -152,7 +175,7 @@ export default function PetScreen() {
     // fixed inset-0, no h-dvh: en la PWA de iOS 26 dvh se queda con la altura vieja al girar horizontal → vertical.
     <main className="fixed inset-0 overflow-hidden bg-[#151a19] font-nunito select-none" style={actions.length > 6 ? { ...SIZES, ...SIZES_7 } : SIZES}>
       {/* ===== ESCENA 3D (fondo a pantalla completa, también bajo la barra de estado) ===== */}
-      <div className="absolute inset-0 z-0">{isMounted && <World hour={hour} onReady={onWorldReady} onTint={splash ? undefined : paintStatusBar} />}</div>
+      <div className="absolute inset-0 z-0">{isMounted && <World hour={hour} weather={kind} onReady={onWorldReady} onTint={splash ? undefined : paintStatusBar} />}</div>
 
       {/* ===== HUD: no captura toques salvo en sus píldoras, para poder girar la isla ===== */}
       <div className="absolute inset-0 z-10 pointer-events-none px-[max(1rem,env(safe-area-inset-left))] pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))] flex flex-col">
@@ -189,12 +212,13 @@ export default function PetScreen() {
             >
               <HistoryIcon size={20} color="#e5e7eb" strokeWidth={2.5} />
             </button>
+            {/* Ajustes: clima, hogar (código de invitación), notificaciones (antes la campana) y cuenta. */}
             <button
-              onClick={handleEnableNotifications}
+              onClick={() => setShowSettings(true)}
               className={`${PILL} pointer-events-auto rounded-full w-12 h-12 flex items-center justify-center active:scale-90 transition-transform`}
-              aria-label="Activar notificaciones" title="Activar notificaciones"
+              aria-label="Ajustes" title="Ajustes"
             >
-              <Bell size={20} fill="#fcd34d" color="#fcd34d" />
+              <Settings size={20} color="#e5e7eb" strokeWidth={2.5} />
             </button>
           </div>
         </div>
@@ -219,8 +243,21 @@ export default function PetScreen() {
           )}
         </div>
 
-        <div className={`${PILL} pointer-events-auto mt-3 self-start rounded-full p-1.5`}>
-          <CircularStats hunger={pet.hunger} happiness={pet.happiness} cleanliness={pet.cleanliness} energy={pet.energy} health={pet.health} />
+        <div className="mt-3 flex items-start justify-between gap-3">
+          <div className={`${PILL} pointer-events-auto rounded-full p-1.5`}>
+            <CircularStats hunger={pet.hunger} happiness={pet.happiness} cleanliness={pet.cleanliness} energy={pet.energy} health={pet.health} />
+          </div>
+          {city && weather && (
+            <button
+              onClick={() => setShowSettings(true)}
+              className={`${PILL} pointer-events-auto rounded-full h-9 pl-2.5 pr-3 flex items-center gap-1.5 min-w-0 text-white font-extrabold text-sm leading-none active:scale-95 transition-transform`}
+              aria-label={`${WEATHER_LABEL[kind]}, ${Math.round(weather.temp)} grados en ${city.name}`} title={`${WEATHER_LABEL[kind]} en ${city.name}`}
+            >
+              <WeatherIcon size={17} className="shrink-0 text-sky-300" aria-hidden />
+              {Math.round(weather.temp)}°
+              <span className="text-white/50 truncate max-w-[6.5rem]">{city.name.split(',')[0]}</span>
+            </button>
+          )}
         </div>
 
         {/* ===== DOCK de acciones: anclado abajo (fuera del flujo) para que quepa también en horizontal ===== */}
@@ -257,6 +294,7 @@ export default function PetScreen() {
 
       {showLog && <ActivityLog pet={pet} me={getDeviceId()} onClose={() => setShowLog(false)} />}
       {showWardrobe && <Wardrobe pet={pet} onWear={id => pet.act('wear', id)} onClose={() => setShowWardrobe(false)} />}
+      {showSettings && <SettingsPanel pet={pet} petId={petId} homes={homes} me={me} admin={admin} onNotifications={handleEnableNotifications} onClose={() => setShowSettings(false)} />}
 
       {askName && !splash && (
         <form

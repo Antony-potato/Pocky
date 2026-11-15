@@ -1,5 +1,7 @@
 // Checks mínimos de la lógica pura. Ejecutar: npm run check (Node >= 23, quita los tipos de .ts solo).
 import assert from 'node:assert/strict';
+import { joinError, homesError, newCode, normalizeCode, DEFAULT_MAX_MEMBERS } from '../src/lib/home.ts';
+import { weatherKind } from '../src/lib/weather.ts';
 import { NODES, EDGES, findPath, nearestNode, WANDER, POI, TREAT_SPOTS, POOP_XZ } from '../src/components/scene/nav.ts';
 import { applyTick, applyAction, getNeeds, clamp, visiblePoops, POOP_SPOTS, ACCESSORIES, syncedFields, computeAge, currentStreak, partnerSummary, DEFAULT_PET, cancunHour, cancunDay, isQuietHour } from '../src/lib/petLogic.ts';
 
@@ -197,5 +199,31 @@ const at = (d, h) => new Date(2026, 9, d, h).getTime();
 assert.equal(computeAge(at(9, 23), at(10, 8)), 1);
 assert.equal(computeAge(at(10, 1), at(10, 23)), 0);
 assert.equal(computeAge(at(1, 12), at(10, 12)), 9);
+
+// Pelota lanzada al final de la partida: la alarga para que le dé tiempo a traerla (antes desaparecía y no sumaba).
+const thrown = applyAction(game, 'throw', t0 + 19000);
+assert.equal(thrown.activityUntil, t0 + 31000);
+assert.equal(applyAction(thrown, 'fetch', t0 + 27000).fetchGain, 3, 'la trae después del final original y cuenta');
+assert.equal(applyAction(base, 'throw', t0), null, 'sin jugar no se lanza');
+assert.equal(applyAction(fetched, 'throw', t0 + 16000), null, 'con el tope ya no se alarga más');
+
+// Hogares: límite de personas (propio del hogar > global > 5) y códigos sin caracteres ambiguos.
+const four = { members: { a: 1, b: 1, c: 1, d: 1 } };
+assert.equal(DEFAULT_MAX_MEMBERS, 5);
+assert.equal(joinError(four, 'e'), null, 'el quinto entra');
+assert.ok(joinError({ members: { ...four.members, e: 1 } }, 'f'), 'el sexto no');
+assert.equal(joinError({ members: { ...four.members, e: 1 } }, 'a'), null, 'quien ya está dentro no choca con el límite');
+assert.ok(joinError(four, 'e', 4), 'límite global del admin');
+assert.equal(joinError({ ...four, maxMembers: 6 }, 'e', 2), null, 'el límite propio del hogar manda sobre el global');
+assert.equal(joinError({}, 'a'), null, 'hogar sin miembros (el Pocky original)');
+assert.equal(homesError(4), null, 'quinto hogar: sí');
+assert.ok(homesError(5), 'sexto hogar: no');
+assert.equal(homesError(5, 8), null, 'límite de hogares del admin');
+let seed = 0;
+assert.match(newCode(n => seed++ % n), /^[A-HJKMNP-Z2-9]{6}$/);
+assert.equal(normalizeCode(' ab-c 2d9 '), 'ABC2D9');
+
+// Clima: códigos WMO de Open-Meteo.
+assert.deepEqual([0, 1, 3, 45, 61, 73, 82, 86, 95].map(weatherKind), ['clear', 'clear', 'cloudy', 'fog', 'rain', 'snow', 'rain', 'snow', 'storm']);
 
 console.log('ok');

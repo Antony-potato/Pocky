@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
-import { usePetStore } from '@/store/petStore';
+import { usePetStore, now } from '@/store/petStore';
 import { SICK } from '@/lib/petLogic';
 import type { PetActivity, PetMood } from '@/types/pet';
 import { NODES, POI, TOUR, WANDER, TREAT_SPOTS, findPath, nearestNode, type NodeId, type XZ } from './nav';
@@ -41,6 +41,7 @@ const BALL_FLY = 0.8; // segundos en el aire
 export function throwBall(x: number, z: number) {
   const n = NODES[nearestNode([x, z])], dx = x - n[0], dz = z - n[1], d = Math.hypot(dx, dz), k = d > 1.3 ? 1.3 / d : 1;
   ballThrow.at = [n[0] + dx * k, n[1] + dz * k];
+  usePetStore.getState().act('throw'); // que la partida no se acabe mientras va a por ella
 }
 const TASKS: Partial<Record<PetActivity, keyof typeof POI>> = { eating: 'eat', bathing: 'bath', playing: 'play', healing: 'heal' };
 
@@ -162,7 +163,7 @@ export default function Pocky() {
     if (b.goal?.pose === 'sleep') { b.goal = null; b.route = []; b.restUntil = clock.elapsedTime + 2; }
     const task = TASKS[activity];
     // La pose dura hasta que acaba la acción (misma hora en los dos móviles).
-    const endAt = clock.elapsedTime + ((usePetStore.getState().activityUntil ?? 0) - Date.now()) / 1000;
+    const endAt = clock.elapsedTime + ((usePetStore.getState().activityUntil ?? 0) - now()) / 1000;
     if (activity === 'snacking') {
       // Golosina: tipo y sitio salen del contador de cuidados, así ambos móviles ven lo mismo.
       const seed = usePetStore.getState().totalCaresGiven ?? 0;
@@ -244,7 +245,7 @@ export default function Pocky() {
       } else if (fetch === 'drop' && b.ball) { // la suelta delante, cuenta (+felicidad) y sigue jugando
         b.ball = { ...b.ball, state: 'ground', to: [p.x + Math.sin(g.rotation.y) * 0.7, p.z + Math.cos(g.rotation.y) * 0.7] };
         usePetStore.getState().act('fetch');
-        const endAt = t + ((usePetStore.getState().activityUntil ?? 0) - Date.now()) / 1000;
+        const endAt = t + ((usePetStore.getState().activityUntil ?? 0) - now()) / 1000;
         b.goal = { pose: 'play', hold: 1, face: POI.play.face, endAt, until: Math.max(t + 1, endAt) };
       } else if (t > b.restUntil) {
         const here = nearestNode([p.x, p.z]), options = WANDER.filter(n => n !== here);

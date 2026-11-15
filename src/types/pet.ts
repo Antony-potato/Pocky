@@ -40,7 +40,16 @@ export interface PetData {
   fcmTokens?:           string[]; // Tokens FCM antiguos, sin dueño (los nuevos van en `devices`)
   devices?:             Record<string, Device>; // cada móvil, por su deviceId
   log?:                 LogEntry[]; // últimas acciones, para el historial (máx. 30)
+  // ----- Hogar: quién comparte esta mascota (lo escribe solo el servidor, /api/home) -----
+  owner?:               string;   // uid de quien la creó (puede renovar el código)
+  members?:             Record<string, Member>; // por uid de Google
+  inviteCode?:          string;   // código de 6 caracteres para unirse
+  maxMembers?:          number;   // límite propio de este hogar (si no, el global de config/app)
+  city?:                City;     // ciudad del clima (Ajustes); la misma para todo el hogar
 }
+
+export interface Member { name: string; joinedAt: number }
+export interface City { name: string; lat: number; lon: number }
 
 export interface LogEntry {
   by: string; // deviceId de quien la hizo

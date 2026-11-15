@@ -1,23 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
-import { FieldValue, getFirestore } from 'firebase-admin/firestore';
+import { FieldValue, getFirestore, type DocumentReference } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
 import { applyTick, cancunDay, cancunHour, currentStreak, getNeeds, isQuietHour, partnerSummary } from '@/lib/petLogic';
 import { PetData } from '@/types/pet';
-
-// firebase-admin no funciona en edge: esta ruta se queda en el runtime de Node.
-function getAdminApp() {
-  if (!getApps().length) {
-    return initializeApp({
-      credential: cert({
-        projectId:   process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey:  process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-      }),
-    });
-  }
-  return getApps()[0];
-}
+import { adminApp as getAdminApp } from '@/lib/admin';
 
 const HOUR = 60 * 60 * 1000;
 const COOLDOWN_MS = 4 * HOUR;          // máx. una notificación cada 4 h…
@@ -37,9 +23,22 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const adminApp = getAdminApp();
-    const firestore = getFirestore(adminApp);
-    const ref = firestore.doc('pets/pocky');
+    // Todos los hogares, uno tras otro; si uno falla, los demás siguen.
+    // ponytail: en serie (≈1 transacción por mascota). Con cientos, repartir en tandas en paralelo o por shards.
+    const refs = await getFirestore(getAdminApp()).collection('pets').listDocuments();
+    const appUrl = new URL('/', req.url).href;
+    let notified = 0;
+    for (const ref of refs) notified += await tickPet(ref, appUrl).catch(e => { console.error(`[Cron] ${ref.id}:`, e); return 0; });
+    return NextResponse.json({ success: true, pets: refs.length, notified });
+  } catch (e) {
+    console.error('[Cron] Error:', e);
+    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+  }
+}
+
+/** Degrada una mascota y manda sus avisos. Devuelve cuántas notificaciones salieron. */
+async function tickPet(ref: DocumentReference, appUrl: string): Promise<number> {
+    const adminApp = getAdminApp(), firestore = ref.firestore;
 
     // Transacción: si un móvil guarda una acción a la vez, Firestore reintenta en vez de pisarla.
     const res = await firestore.runTransaction(async tx => {
@@ -50,14 +49,13 @@ export async function GET(req: NextRequest) {
       if (Object.keys(changes).length > 0) tx.update(ref, { ...changes, lastSyncedBy: 'cron', updatedAt: new Date() });
       return { pet, changes };
     });
-    if (!res) return NextResponse.json({ message: 'No pet found' });
+    if (!res) return 0;
     const { pet, changes } = res;
-    if (Object.keys(changes).length === 0) return NextResponse.json({ message: 'No changes needed' });
+    if (Object.keys(changes).length === 0) return 0;
     const merged = { ...pet, ...changes } as PetData;
 
     // ----- Notificaciones (FCM: Chrome, Android y Safari/iPhone instalado) -----
     const now = Date.now();
-    const appUrl = new URL('/', req.url).href;
     const devices = pet.devices ?? {};
     const legacy = pet.fcmTokens ?? [];
     const everyone = [...new Set([...Object.values(devices).flatMap(d => d.token ? [d.token] : []), ...legacy])];
@@ -77,7 +75,7 @@ export async function GET(req: NextRequest) {
       });
       notified += r.successCount;
       r.responses.forEach((x, i) => { if (DEAD_TOKEN.has(x.error?.code ?? '')) dead.add(tokens[i]); });
-      console.log(`[Cron] FCM "${data.title}": ok ${r.successCount}, fallos ${r.failureCount}`);
+      console.log(`[Cron] ${ref.id} FCM "${data.title}": ok ${r.successCount}, fallos ${r.failureCount}`);
     };
 
     // Necesidades: a los dos, con cooldown. De noche (Cancún) se espera: sale a las 8:00.
@@ -114,9 +112,5 @@ export async function GET(req: NextRequest) {
     }
     if (Object.keys(update).length) await ref.update(update);
 
-    return NextResponse.json({ success: true, changes, notified });
-  } catch (e) {
-    console.error('[Cron] Error:', e);
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
-  }
+    return notified;
 }

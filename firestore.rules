@@ -1,36 +1,41 @@
 rules_version = '2';
 
 // Reglas de Pocky.
-// - Sesión obligatoria: la app inicia sesión anónima sola (src/lib/firebase.ts → ensureAuth).
-//   Requiere Firebase Console → Authentication → Sign-in method → Anónimo activado.
-// - El cron usa el Admin SDK, que no pasa por estas reglas.
+// - Sesión de Google obligatoria (Firebase Console → Authentication → Sign-in method → Google) y ser miembro del
+//   hogar: cada mascota solo la leen y la cuidan los uid de su mapa `members`.
+// - Quién es miembro, el dueño, el código de invitación y el límite de personas los escribe SOLO el servidor
+//   (/api/home y /api/admin, con el Admin SDK, que no pasa por estas reglas). Lo mismo crear mascotas, `users` y
+//   `config`: por eso aquí no tienen permisos (lo que no se nombra, se deniega).
+// - El cron también usa el Admin SDK.
 // - Publicar: `npx firebase-tools deploy --only firestore:rules --project pocky-2c011`
 //   (o pegar este archivo en Firebase Console → Firestore → Reglas → Publicar).
+//   OJO: publicar a la vez que la versión de la app con hogares; la anterior (sesión anónima) deja de poder leer.
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function signedIn() { return request.auth != null; }
+    function isMember(pet) { return request.auth != null && request.auth.uid in pet.get('members', {}); }
     function inRange(v) { return v is number && v >= 0 && v <= 100; }
     function statsValid(d) {
       return inRange(d.hunger) && inRange(d.happiness) && inRange(d.cleanliness)
           && inRange(d.energy) && inRange(d.health);
     }
+    function same(field, fallback) {
+      return request.resource.data.get(field, fallback) == resource.data.get(field, fallback);
+    }
 
     match /pets/{petId} {
-      allow read: if signedIn();
+      allow read: if isMember(resource.data);
 
-      allow create: if signedIn() && statsValid(request.resource.data);
-
-      allow update: if signedIn()
+      allow update: if isMember(resource.data)
         && statsValid(request.resource.data)
         // Identidad y fecha de nacimiento inmutables: ningún móvil puede reiniciar el contador de días.
-        && request.resource.data.get('name', '') == resource.data.get('name', '')
-        && request.resource.data.get('species', '') == resource.data.get('species', '')
-        && request.resource.data.get('createdAt', 0) == resource.data.get('createdAt', 0)
+        && same('name', '') && same('species', '') && same('createdAt', 0)
+        // El hogar no se toca desde el móvil: nadie se cuela, se nombra dueño ni se sube el límite.
+        && same('members', {}) && same('owner', '') && same('inviteCode', '') && same('maxMembers', 0)
         && request.resource.data.get('fcmTokens', []) is list;
 
-      allow delete: if false;
+      allow create, delete: if false;
     }
   }
 }

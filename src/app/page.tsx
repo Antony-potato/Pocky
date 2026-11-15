@@ -1,5 +1,5 @@
-import PetScreen from '@/components/PetScreen';
+import AuthGate from '@/components/AuthGate';
 
 export default function Home() {
-  return <PetScreen />;
+  return <AuthGate />;
 }

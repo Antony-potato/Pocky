@@ -7,7 +7,12 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import Island from './Island';
 import Pocky, { pockyPos, BallField } from './Pocky';
 import Poops from './Poops';
+import Rain from './Rain';
 import { getTimePhase } from '@/lib/timeBackground';
+import type { WeatherKind } from '@/lib/weather';
+
+// Cuánto sol deja pasar cada clima (el de la ciudad del hogar).
+const SUN: Record<WeatherKind, number> = { clear: 1, cloudy: 0.8, fog: 0.75, snow: 0.8, rain: 0.6, storm: 0.5 };
 
 const OFFSET: [number, number, number] = [0, 10, 12]; // cámara respecto al punto que mira: vista isométrica ~40°
 const POLAR = Math.atan2(OFFSET[2], OFFSET[1]);
@@ -67,14 +72,14 @@ function StatusTint({ onTint }: { onTint: (color: string) => void }) {
 }
 
 // Fondo, cielo y sol según la hora. Sombras anchas y suaves (estilo maqueta de arcilla, no recortes duros).
-export function Lights({ hour }: { hour: number }) {
+export function Lights({ hour, weather = 'clear' }: { hour: number; weather?: WeatherKind }) {
   const ph = getTimePhase(hour);
   return (
     <>
       <color attach="background" args={[ph.water]} />
       <hemisphereLight color={ph.sky} groundColor={ph.ground} intensity={ph.hemiIntensity} />
       <directionalLight
-        position={[7, 14, 8.5]} color={ph.sun} intensity={ph.sunIntensity} castShadow
+        position={[7, 14, 8.5]} color={ph.sun} intensity={ph.sunIntensity * SUN[weather]} castShadow
         shadow-mapSize={[1024, 1024]} shadow-radius={6} shadow-bias={-0.0004} shadow-normalBias={0.03}
         shadow-camera-left={-13} shadow-camera-right={13} shadow-camera-top={13} shadow-camera-bottom={-13}
         shadow-camera-near={1} shadow-camera-far={40}
@@ -83,13 +88,14 @@ export function Lights({ hour }: { hour: number }) {
   );
 }
 
-export default function World({ hour, onReady, onTint }: { hour: number; onReady?: () => void; onTint?: (color: string) => void }) {
+export default function World({ hour, weather = 'clear', onReady, onTint }: { hour: number; weather?: WeatherKind; onReady?: () => void; onTint?: (color: string) => void }) {
   const ph = getTimePhase(hour);
   return (
     // Neutral: casi no toca los colores medios y suaviza las luces altas (tejado, arena, espuma) en vez de quemarlas.
     <Canvas shadows="percentage" orthographic dpr={[1, 2]} gl={{ toneMapping: THREE.NeutralToneMapping }}
       camera={{ position: OFFSET, zoom: 40, near: 0.1, far: 100 }}>
-      <Lights hour={hour} />
+      <Lights hour={hour} weather={weather} />
+      {(weather === 'rain' || weather === 'storm' || weather === 'snow') && <Rain snow={weather === 'snow'} />}
       <Island waterColor={ph.water} sky={ph.sky} glow={ph.glow} />
       <Pocky />
       <Poops />

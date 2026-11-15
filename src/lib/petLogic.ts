@@ -157,10 +157,14 @@ export function computeAge(createdAt: number, now = Date.now()): number {
   return Math.max(0, Math.round((day(now) - day(createdAt)) / 86400000));
 }
 
-export type PetAction = 'feed' | 'treat' | 'bathe' | 'walk' | 'play' | 'medicine' | 'sleep' | 'wake' | 'cuddle' | 'clean' | 'wear' | 'fetch';
+export type PetAction = 'feed' | 'treat' | 'bathe' | 'walk' | 'play' | 'medicine' | 'sleep' | 'wake' | 'cuddle' | 'clean' | 'wear' | 'fetch' | 'throw';
+type FreeAction = 'sleep' | 'wake' | 'cuddle' | 'clean' | 'wear' | 'fetch' | 'throw'; // sin Effect: no pasan por ACTIONS
 
 // Minijuego de la pelota (mientras juega): cada pelota que trae +3, hasta +20 por partida; alarga la partida.
 const FETCH_GAIN = 3, FETCH_MAX = 20, FETCH_EXTEND = 8000;
+// Lanzarla ya alarga la partida lo que tarda en ir y volver: antes, si la partida acababa con la pelota en el aire,
+// la pelota desaparecía y esa no sumaba felicidad.
+const THROW_EXTEND = 12000;
 
 // Mimos (tocar a Pocky): +3 de felicidad, como mucho uno cada 30 s. No cuentan como cuidado (ni racha ni accesorios).
 export const CUDDLE_MS = 30000;
@@ -177,7 +181,7 @@ export const MEDICINE_BELOW = 50;
 
 // Cada acción dura `ms` y reparte `gain` poco a poco mientras dura (en applyTick), como dormir.
 // La golosina dura menos pero da más: cae del cielo y Pocky va a por ella.
-const ACTIONS: Record<Exclude<PetAction, 'sleep' | 'wake' | 'cuddle' | 'clean' | 'wear' | 'fetch'>, Effect> = {
+const ACTIONS: Record<Exclude<PetAction, FreeAction>, Effect> = {
   feed:  { activity: 'eating',   ms: 20000, full: 'hunger',      gain: { hunger: 15, happiness: 5 } },
   treat: { activity: 'snacking', ms: 12000, full: 'hunger',      gain: { hunger: 25, happiness: 10 } },
   bathe: { activity: 'bathing',  ms: 20000, full: 'cleanliness', gain: { cleanliness: 40, health: 5 } },
@@ -193,7 +197,7 @@ export const FULL = 90;
 
 /** No quiere hacerlo: ya está lleno de eso, o no tiene energía para moverse. */
 export function refuses(s: PetData, a: PetAction, now = Date.now()): boolean {
-  if (a === 'wake' || a === 'cuddle' || a === 'clean' || a === 'wear' || a === 'fetch') return false;
+  if (a === 'wake' || a === 'cuddle' || a === 'clean' || a === 'wear' || a === 'fetch' || a === 'throw') return false;
   if (a === 'sleep') return s.energy >= FULL && !isNight(now); // de noche siempre se puede acostar
   const e = ACTIONS[a];
   return s[e.full] >= (e.fullAt ?? FULL) || s.energy < (e.minEnergy ?? 0);
@@ -233,6 +237,8 @@ export function applyAction(s: PetData, a: PetAction, now = Date.now(), arg?: nu
     ...r, happiness: clamp(r.happiness + FETCH_GAIN), fetchGain: (r.fetchGain ?? 0) + FETCH_GAIN,
     activityUntil: Math.max(r.activityUntil ?? 0, now + FETCH_EXTEND),
   }, now);
+  if (a === 'throw') return r.activity !== 'playing' || (r.fetchGain ?? 0) >= FETCH_MAX ? null
+    : { ...r, activityUntil: Math.max(r.activityUntil ?? 0, now + THROW_EXTEND) };
   if (r.isAsleep || r.activity !== 'idle' || refuses(r, a, now)) return null;
   if (a === 'sleep') return withMood({ ...r, isAsleep: true, activity: 'sleeping', sleptAlone: false }, now);
   const e = ACTIONS[a];

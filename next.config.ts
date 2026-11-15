@@ -1,6 +1,8 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  // Dev por Tailscale: sin esto Next bloquea el HMR desde otro host (nombre MagicDNS o IP 100.x).
+  allowedDevOrigins: ['*.ts.net', '100.*.*.*'],
   // Headers para PWA y seguridad
   async headers() {
     return [
