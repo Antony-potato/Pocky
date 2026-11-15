@@ -8,11 +8,17 @@ import Island from './Island';
 import Pocky, { pockyPos, BallField } from './Pocky';
 import Poops from './Poops';
 import Rain from './Rain';
+import Clouds from './Clouds';
 import { getTimePhase } from '@/lib/timeBackground';
 import type { WeatherKind } from '@/lib/weather';
 
 // Cuánto sol deja pasar cada clima (el de la ciudad del hogar).
-const SUN: Record<WeatherKind, number> = { clear: 1, cloudy: 0.8, fog: 0.75, snow: 0.8, rain: 0.6, storm: 0.5 };
+const SUN: Record<WeatherKind, number> = { clear: 1, cloudy: 0.6, fog: 0.55, snow: 0.6, rain: 0.45, storm: 0.35 };
+// Cuánto se agrisan cielo y mar, y cuántas nubes pasan.
+const GLOOM: Record<WeatherKind, number> = { clear: 0, cloudy: 0.45, fog: 0.55, snow: 0.5, rain: 0.65, storm: 0.8 };
+const CLOUDS: Record<WeatherKind, number> = { clear: 0, cloudy: 6, fog: 4, snow: 6, rain: 8, storm: 9 };
+const grey = (hex: string, weather: WeatherKind, night: boolean) =>
+  '#' + new THREE.Color(hex).lerp(new THREE.Color(night ? '#262c3c' : '#8d98a3'), GLOOM[weather]).getHexString();
 
 const OFFSET: [number, number, number] = [0, 10, 12]; // cámara respecto al punto que mira: vista isométrica ~40°
 const POLAR = Math.atan2(OFFSET[2], OFFSET[1]);
@@ -76,8 +82,8 @@ export function Lights({ hour, weather = 'clear' }: { hour: number; weather?: We
   const ph = getTimePhase(hour);
   return (
     <>
-      <color attach="background" args={[ph.water]} />
-      <hemisphereLight color={ph.sky} groundColor={ph.ground} intensity={ph.hemiIntensity} />
+      <color attach="background" args={[grey(ph.water, weather, ph.isNight)]} />
+      <hemisphereLight color={grey(ph.sky, weather, ph.isNight)} groundColor={ph.ground} intensity={ph.hemiIntensity} />
       <directionalLight
         position={[7, 14, 8.5]} color={ph.sun} intensity={ph.sunIntensity * SUN[weather]} castShadow
         shadow-mapSize={[1024, 1024]} shadow-radius={6} shadow-bias={-0.0004} shadow-normalBias={0.03}
@@ -96,7 +102,8 @@ export default function World({ hour, weather = 'clear', onReady, onTint }: { ho
       camera={{ position: OFFSET, zoom: 40, near: 0.1, far: 100 }}>
       <Lights hour={hour} weather={weather} />
       {(weather === 'rain' || weather === 'storm' || weather === 'snow') && <Rain snow={weather === 'snow'} />}
-      <Island waterColor={ph.water} sky={ph.sky} glow={ph.glow} />
+      {CLOUDS[weather] > 0 && <Clouds count={CLOUDS[weather]} dark={weather === 'rain' || weather === 'storm'} />}
+      <Island waterColor={grey(ph.water, weather, ph.isNight)} sky={grey(ph.sky, weather, ph.isNight)} glow={ph.glow} />
       <Pocky />
       <Poops />
       <BallField />

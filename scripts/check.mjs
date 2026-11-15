@@ -226,4 +226,8 @@ assert.equal(normalizeCode(' ab-c 2d9 '), 'ABC2D9');
 // Clima: códigos WMO de Open-Meteo.
 assert.deepEqual([0, 1, 3, 45, 61, 73, 82, 86, 95].map(weatherKind), ['clear', 'clear', 'cloudy', 'fog', 'rain', 'snow', 'rain', 'snow', 'storm']);
 
+assert.equal(weatherKind(0, 77), 'cloudy', 'código "despejado" pero cielo cubierto: nublado');
+assert.equal(weatherKind(0, 30), 'clear');
+assert.equal(weatherKind(61, 100), 'rain', 'la lluvia manda sobre las nubes');
+
 console.log('ok');

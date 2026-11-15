@@ -55,7 +55,7 @@ export default function PetScreen({ petId, homes, me, admin }: {
     return () => { on = false; clearInterval(i); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cityKey]);
-  const kind = weather ? weatherKind(weather.code) : 'clear';
+  const kind = weather ? weatherKind(weather.code, weather.clouds) : 'clear';
   const WeatherIcon = kind === 'clear' && weather && !weather.isDay ? Moon : WEATHER_ICON[kind];
   const [isMounted, setIsMounted] = useState(false);
   const [pressed, setPressed] = useState<string | null>(null);
