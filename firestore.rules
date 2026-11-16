@@ -36,6 +36,16 @@ service cloud.firestore {
         && request.resource.data.get('fcmTokens', []) is list;
 
       allow create, delete: if false;
+
+      // Cine de la isla de juegos: una foto (reducida, dentro del documento) o un enlace, de todo el hogar.
+      match /extra/cinema {
+        function member() { return isMember(get(/databases/$(database)/documents/pets/$(petId)).data); }
+        allow read, delete: if member();
+        allow create, update: if member()
+          && request.resource.data.keys().hasOnly(['url', 'kind', 'by', 'at'])
+          && request.resource.data.url is string && request.resource.data.url.size() < 900000
+          && request.resource.data.kind in ['image', 'video'];
+      }
     }
   }
 }

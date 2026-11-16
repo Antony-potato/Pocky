@@ -3,9 +3,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import { usePetStore, now } from '@/store/petStore';
+import { useIsland } from '@/store/islandStore';
 import { SICK } from '@/lib/petLogic';
 import type { PetActivity, PetMood } from '@/types/pet';
-import { NODES, POI, TOUR, WANDER, TREAT_SPOTS, findPath, nearestNode, type NodeId, type XZ } from './nav';
+import { NODES, POI, TOUR, WANDER, GAMES_WANDER, GAMES, GAMES_PLAY, TREAT_SPOTS, K_A, K_B, findPath, groundY, nearestNode, entryNode, walkRoute, sailK, type NodeId, type XZ } from './nav';
+import { walkable as homeWalkable } from './Island';
+import { walkable as gamesWalkable } from './GamesIsland';
 import { Part, toon, LINE } from './toon';
 import { TreatModel, TREAT_KINDS, TREAT_NAME, type TreatKind } from './Treat';
 import Outfit from './Accessories';
@@ -54,26 +57,38 @@ const TAIL = new THREE.TubeGeometry(new THREE.CatmullRomCurve3([
   new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0.12, -0.22), new THREE.Vector3(0.03, 0.38, -0.36), new THREE.Vector3(0.07, 0.6, -0.28),
 ]), 20, 0.09, 10);
 
+// Tocar el suelo: Pocky va andando hasta allí. ponytail: global, como ballThrow.
+const walkAsk = { at: null as XZ | null };
+const canWalk = (x: number, z: number) => homeWalkable(x, z) || gamesWalkable(x, z);
+
 /**
- * Mientras juega, un plano invisible sobre la isla recoge los toques para lanzar la pelota. Pocky y las cacas
- * van por encima (paran el evento); arrastrar sigue girando la cámara (delta grande = no es un toque).
+ * Un plano invisible sobre cada isla recoge los toques en el suelo: mientras juega le lanzan la pelota (solo en la
+ * isla donde está); si no, Pocky va andando al punto tocado (en barca si es la otra isla). Pocky, las cacas, el cine
+ * y las máquinas van por encima (paran el evento); arrastrar sigue girando la cámara (delta grande = no es un toque).
  */
-export function BallField() {
-  const playing = usePetStore(s => s.activity === 'playing' && !s.isAsleep);
-  if (!playing) return null;
+export function TapField() {
+  const onTap = (e: ThreeEvent<MouseEvent>) => {
+    if (e.delta > 8) return;
+    e.stopPropagation();
+    const { x, z } = e.point, s = usePetStore.getState();
+    if (s.activity !== 'playing' || s.isAsleep) walkAsk.at = [x, z];
+    else if ((sailK(x, z) > K_B) === useIsland.getState().there) throwBall(x, z);
+  };
   return (
-    <mesh
-      rotation-x={-Math.PI / 2} position-y={0.03}
-      onClick={e => { if (e.delta > 8) return; e.stopPropagation(); throwBall(e.point.x, e.point.z); }}
-    >
-      <planeGeometry args={[20, 16]} />
-      <meshBasicMaterial transparent opacity={0} depthWrite={false} />
-    </mesh>
+    <>
+      {([[0, 0, 26, 21], [GAMES[0], GAMES[1], 15, 15]] as const).map(([x, z, w, h]) => (
+        <mesh key={x} rotation-x={-Math.PI / 2} position={[x, 0.03, z]} onClick={onTap}>
+          <planeGeometry args={[w, h]} />
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        </mesh>
+      ))}
+    </>
   );
 }
 
+// Si Pocky está fuera del grafo (le mandaron a un punto suelto), vuelve por un nodo al que llegue sin atravesar nada.
 function route(from: XZ, to: NodeId): XZ[] {
-  return findPath(nearestNode(from), to).map(id => NODES[id]);
+  return findPath(entryNode(from, canWalk), to).map(id => NODES[id]);
 }
 
 function turn(o: THREE.Object3D, target: number, dt: number) {
@@ -141,9 +156,12 @@ export default function Pocky() {
   const treatRef = useRef<THREE.Group>(null!);
   const treatShadow = useRef<THREE.Mesh>(null!);
   const ballRef = useRef<THREE.Group>(null!);
+  const markRef = useRef<THREE.Mesh>(null!);
 
   const brain = useRef({
+    play: POI.play as { node: NodeId; face: XZ }, // dónde juega esta partida: en casa o en la plaza de la isla de juegos
     route: [] as XZ[], goal: null as Goal | null, fast: false, restUntil: 2, hop: -9, rigY: 0,
+    mark: null as XZ | null, // destino del último toque en el suelo (se señala mientras va hacia él)
     treat: null as null | { x: number; z: number; t0: number },
     ball: null as null | { from: XZ; to: XZ; t0: number; state: 'flying' | 'ground' | 'carried' },
   });
@@ -180,10 +198,12 @@ export default function Pocky() {
       setTreatKind(TREAT_KINDS[(seed + Math.floor(seed / TREAT_SPOTS.length)) % TREAT_KINDS.length]); // no siempre la misma en el mismo sitio
     } else if (task) {
       dropTreat();
-      b.route = route(here, POI[task].node);
-      b.goal = { pose: task, hold: 2, face: POI[task].face, endAt };
+      if (task === 'play') b.play = useIsland.getState().there ? GAMES_PLAY : POI.play;
+      const poi = task === 'play' ? b.play : POI[task];
+      b.route = route(here, poi.node);
+      b.goal = { pose: task, hold: 2, face: poi.face, endAt };
       b.fast = true;
-    } else if (activity === 'walking') {
+    } else if (activity === 'walking') { // paseo: en barca a la isla de juegos y una vuelta por ella
       dropTreat();
       let from = here;
       b.route = TOUR.flatMap(stop => { const r = route(from, stop); from = NODES[stop]; return r; });
@@ -191,6 +211,26 @@ export default function Pocky() {
       b.fast = true;
     }
   }, [activity, isAsleep, clock]);
+
+  // Botón "Casa" (solo sale en la isla de juegos): vuelve en la barca.
+  const homeAsked = useIsland(s => s.homeAsked);
+  useEffect(() => {
+    if (!homeAsked) return;
+    const b = brain.current, p = root.current.position;
+    b.route = route([p.x, p.z], 'c');
+    b.goal = null;
+    b.fast = true;
+  }, [homeAsked]);
+  // Botón Pasear cuando el paseo no le hace falta (ya está contento) o no tiene energía: va a la isla igualmente.
+  const goAsked = useIsland(s => s.goAsked);
+  useEffect(() => {
+    if (!goAsked) return;
+    const b = brain.current, p = root.current.position;
+    let from: XZ = [p.x, p.z];
+    b.route = TOUR.flatMap(stop => { const r = route(from, stop); from = NODES[stop]; return r; });
+    b.goal = null;
+    b.fast = true;
+  }, [goAsked]);
 
   useFrame((state, delta) => {
     const dt = Math.min(delta, 0.1), t = state.clock.elapsedTime, b = brain.current, g = root.current, p = g.position;
@@ -210,6 +250,24 @@ export default function Pocky() {
       }
     }
 
+    // Toque en el suelo: va hasta allí (si no duerme ni está en mitad de comer, bañarse, curarse...).
+    if (walkAsk.at) {
+      const to = walkAsk.at;
+      walkAsk.at = null;
+      if (!isAsleep && (activity === 'idle' || activity === 'walking')) {
+        b.route = walkRoute([p.x, p.z], to, canWalk);
+        b.mark = b.route[b.route.length - 1];
+        b.goal = null;
+        b.fast = true;
+      }
+    }
+    const marked = !!b.mark && b.route[b.route.length - 1] === b.mark; // deja de señalarse al llegar o si cambia de planes
+    markRef.current.visible = marked;
+    if (marked) { markRef.current.position.set(b.mark![0], 0.3 + 0.05 * Math.sin(t * 6), b.mark![1]); markRef.current.scale.setScalar(0.2 + 0.03 * Math.sin(t * 6)); }
+
+    const sk = sailK(p.x, p.z), sailing = sk > K_A - 0.05 && sk < K_B + 0.05; // entre los dos amarres: va en la barca
+    const there = sk > K_B + 1; // ya en la isla de juegos: la interfaz enseña el cine, los juegos y "Casa"
+    if (there !== useIsland.getState().there) useIsland.setState({ there });
     if (b.route.length) {
       const [tx, tz] = b.route[0], dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz);
       if (d < 0.05) {
@@ -224,12 +282,12 @@ export default function Pocky() {
           else b.restUntil = t + 3 + Math.random() * 6;
         }
       } else {
-        const step = Math.min(d, (b.fast ? 2.3 : 1.0) * slow * dt);
+        const step = Math.min(d, (sailing ? 3 : (b.fast ? 2.3 : 1.0) * slow) * dt);
         p.x += (dx / d) * step;
         p.z += (dz / d) * step;
         turn(g, Math.atan2(dx, dz), dt);
       }
-      pose = 'walk';
+      pose = sailing ? 'sit' : 'walk'; // en la barca va sentado
     } else if (b.goal && t < (b.goal.until ?? 0)) {
       pose = t < (b.goal.startAt ?? 0) ? 'sit' : b.goal.pose; // espera sentado (mirándola) a que aterrice
       turn(g, Math.atan2(b.goal.face[0] - p.x, b.goal.face[1] - p.z), dt);
@@ -239,21 +297,23 @@ export default function Pocky() {
       b.goal = null;
       if (fetch === 'pick' && b.ball) { // la coge con la boca y la trae
         b.ball.state = 'carried';
-        b.route = route([p.x, p.z], POI.play.node);
-        b.goal = { pose: 'sit', hold: 0.6, face: POI.play.face, fetch: 'drop' };
+        b.route = route([p.x, p.z], b.play.node);
+        b.goal = { pose: 'sit', hold: 0.6, face: b.play.face, fetch: 'drop' };
         b.fast = true;
       } else if (fetch === 'drop' && b.ball) { // la suelta delante, cuenta (+felicidad) y sigue jugando
         b.ball = { ...b.ball, state: 'ground', to: [p.x + Math.sin(g.rotation.y) * 0.7, p.z + Math.cos(g.rotation.y) * 0.7] };
         usePetStore.getState().act('fetch');
         const endAt = t + ((usePetStore.getState().activityUntil ?? 0) - now()) / 1000;
-        b.goal = { pose: 'play', hold: 1, face: POI.play.face, endAt, until: Math.max(t + 1, endAt) };
+        b.goal = { pose: 'play', hold: 1, face: b.play.face, endAt, until: Math.max(t + 1, endAt) };
       } else if (t > b.restUntil) {
-        const here = nearestNode([p.x, p.z]), options = WANDER.filter(n => n !== here);
+        // En la isla de juegos se queda dando vueltas por ella: a casa solo vuelve si se le llama.
+        const here = nearestNode([p.x, p.z]), options = (there ? GAMES_WANDER : WANDER).filter(n => n !== here);
         b.route = route([p.x, p.z], options[Math.floor(Math.random() * options.length)]);
       }
     }
+    p.y = THREE.MathUtils.damp(p.y, groundY(p.x, p.z), 12, dt); // baja a las tablas del embarcadero y a la barca
     pockyPos.copy(p);
-    ui.v.set(p.x, 2.3 + b.rigY, p.z).project(state.camera);
+    ui.v.set(p.x, 2.3 + b.rigY + p.y, p.z).project(state.camera);
     ui.anchor.style.transform = `translate(${((ui.v.x + 1) / 2) * state.size.width}px, ${((1 - ui.v.y) / 2) * state.size.height}px)`;
 
     // ---- Pelota: en parábola, en el suelo o en la boca de Pocky ----
@@ -406,6 +466,7 @@ export default function Pocky() {
         </mesh>
       </>
     )}
+    <mesh ref={markRef} geometry={RING} material={mat.white} rotation-x={Math.PI / 2} visible={false} />
     <group ref={ballRef} visible={false}>
       <Part geometry={SPHERE} material={mat.ball} scale={0.18} shadow />
       <mesh geometry={RING} material={mat.white} rotation-x={Math.PI / 2} scale={0.182} />

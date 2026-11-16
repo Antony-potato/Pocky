@@ -9,7 +9,7 @@ import {
   ROCKS, ROCKS_LO, ROCK_HW, FLAGS, COBBLES, TREE_KINDS, BUSH_KINDS, IVY, TUFTS, CLOVER, SPROUT, FLOWERS, FLOWER_CORE, BLOSSOM_CORE, LOTUS, LILY_PAD,
   CATTAIL, LOG, FLAME, SHINGLE, CUSHION, BOWL, post,
 } from './shapes';
-import { NODES, EDGES } from './nav';
+import { NODES, EDGES, PIER, GAMES, GAMES_SHORE } from './nav';
 
 // Isla generada por código (sin modelos externos). Mundo: x derecha, z hacia la cámara (sur), y arriba.
 // La hierba está en y = 0. Las posiciones de los sitios coinciden con los nodos de nav.ts.
@@ -20,8 +20,25 @@ export const RZ = 7.4;
 const edgeR = (a: number) => 1 + 0.05 * Math.sin(3 * a + 1) + 0.03 * Math.sin(5 * a + 2);
 const edgeAt = (a: number, k = 1): [number, number] => [Math.cos(a) * RX * edgeR(a) * k, Math.sin(a) * RZ * edgeR(a) * k];
 
+// Orilla de casa: del borde del césped sale una ladera de hierba que se vuelve playa y se mete en el mar (no hay
+// acantilado). Perfil (distancia al borde, altura): el primer punto queda dentro de la losa de césped, el segundo
+// en su labio redondeado, y en WATERLINE cruza el nivel del mar (y = -1.5). Lo que pasa del labio se ensancha o
+// estrecha según el ángulo (shoreW) y se encoge delante del embarcadero para que la barca tenga agua. La misma
+// cuenta está en GLSL (SHORE_GLSL) para el shader de la orilla y la espuma del mar.
+const SHORE: [number, number][] = [[0, -0.15], [0.15, -0.045], [0.55, -0.28], [1.0, -0.62], [1.5, -0.95], [2.1, -1.27], [2.7, -1.5], [3.8, -1.9]];
+const LIP = 0.15, WATERLINE = 2.7, DOCK_A = 0.87; // DOCK_A: ángulo del embarcadero
+const shoreW = (a: number) => (1 + 0.14 * Math.sin(4 * a + 2) + 0.07 * Math.sin(9 * a + 1)) * (1 - 0.45 * Math.exp(-(((a - DOCK_A) / 0.3) ** 2)));
+/** Punto de la orilla en el ángulo `a`, a `u` del borde del césped (u en metros del perfil, antes de ensanchar). */
+const shoreAt = (a: number, u: number): [number, number, number] => {
+  const [ex, ez] = edgeAt(a), L = Math.hypot(ex, ez), o = u <= LIP ? u : LIP + (u - LIP) * shoreW(a);
+  let i = 1;
+  while (i < SHORE.length - 1 && SHORE[i][0] < u) i++;
+  const [u0, y0] = SHORE[i - 1], [u1, y1] = SHORE[i];
+  return [(ex / L) * (L + o), y0 + ((y1 - y0) * (u - u0)) / (u1 - u0), (ez / L) * (L + o)];
+};
+
 // Paleta alegre pero suave (tipo maqueta): saturación media, sin el lima ni el cian chillones del principio.
-const C = {
+export const C = {
   grass: '#a3d466', dirt: '#b8805a', path: '#f0c88c', stone: '#e2cfb1', rock: '#ddd0bf',
   trunk: '#9c6142', wood: '#b4743f', woodDark: '#935a2e', leaf: ['#88c552', '#9ccf5c', '#7cbc4c'],
   bush: ['#56ad52', '#66b95c', '#4aa04e'], rim: '#dccfa8',
@@ -33,16 +50,16 @@ const pick = <T,>(a: T[], r: () => number) => a[Math.floor(r() * a.length)];
 
 const SPHERE = new THREE.SphereGeometry(1, 16, 12);
 const CYL = new THREE.CylinderGeometry(1, 1, 1, 16);
-const BOX = new RoundedBoxGeometry(1, 1, 1, 2, 0.14); // cantos redondeados; con escala no uniforme el bisel se adapta a cada pieza
+export const BOX = new RoundedBoxGeometry(1, 1, 1, 2, 0.14); // cantos redondeados; con escala no uniforme el bisel se adapta a cada pieza
 const MOUND = new THREE.CapsuleGeometry(0.5, 4, 4, 12).rotateZ(Math.PI / 2); // caballón del huerto
 const FENCE_POST = post(0.14, 0.62);
-const POST = post(0.11, 1); // se estira en y por instancia
+export const POST = post(0.11, 1); // se estira en y por instancia
 const CANOPIES = TREE_KINDS.map(k => k.canopy), TRUNKS = TREE_KINDS.map(k => k.trunk), BUSH_GEOS = BUSH_KINDS.map(k => k.geo);
 const Y = new THREE.Vector3(0, 1, 0);
 
 // Vetas: ruido en coordenadas locales de la caja unidad; al escalarla se estira a lo largo de la pieza.
 const WOOD = 'diffuseColor.rgb *= .88 + .2 * vnoise(vL.xy * 7. + vL.z * 5.);';
-const MAT = {
+export const MAT = {
   vary: shaded({ roughness: 0.9 }, { key: 'vary', color: VARY }),
   vcol: shaded({ roughness: 0.9, vertexColors: true }, { key: 'vary', color: VARY }),
   wood: shaded({ roughness: 0.85 }, { key: 'wood', color: WOOD }),
@@ -72,7 +89,7 @@ const MAT = {
 };
 
 type V3 = [number, number, number];
-type Item = { p: V3; s?: number | V3; r?: number | V3; c?: string; v?: number }; // r: giro en y o Euler; v: variante
+export type Item = { p: V3; s?: number | V3; r?: number | V3; c?: string; v?: number }; // r: giro en y o Euler; v: variante
 
 // Caja con cantos redondeados y normales limpias (el RoundedBox de drei suaviza las normales hasta dentro
 // de las caras grandes y deja un marco oscuro en las paredes).
@@ -82,7 +99,7 @@ function RBox({ args: [w, h, d], radius, ...props }: Omit<ThreeElements['mesh'],
 }
 
 // Un InstancedMesh por tipo de pieza: pocas draw calls para que vaya fluido en móvil.
-function Scatter({ items, geo, color = '#ffffff', shadow = true, glow = false, mat = MAT.vary }: {
+export function Scatter({ items, geo, color = '#ffffff', shadow = true, glow = false, mat = MAT.vary }: {
   items: Item[]; geo: THREE.BufferGeometry; color?: string; shadow?: boolean; glow?: boolean; mat?: THREE.Material;
 }) {
   const ref = useRef<THREE.InstancedMesh>(null!);
@@ -107,7 +124,7 @@ function Scatter({ items, geo, color = '#ffffff', shadow = true, glow = false, m
 }
 
 // Varias geometrías de la misma pieza (variantes): cada item elige la suya con `v`. Una draw call por variante.
-function Variants({ geos, items, ...rest }: Omit<Parameters<typeof Scatter>[0], 'geo'> & { geos: THREE.BufferGeometry[] }) {
+export function Variants({ geos, items, ...rest }: Omit<Parameters<typeof Scatter>[0], 'geo'> & { geos: THREE.BufferGeometry[] }) {
   const groups = useMemo(() => geos.map((_, k) => items.filter(it => (it.v ?? 0) % geos.length === k)), [geos, items]);
   return <>{groups.map((g, k) => g.length > 0 && <Scatter key={k} geo={geos[k]} items={g} {...rest} />)}</>;
 }
@@ -152,16 +169,18 @@ const BED = { x: 7.5, z: -0.4 };
 const inEllipse = (x: number, z: number, cx: number, cz: number, rx: number, rz: number) => ((x - cx) / rx) ** 2 + ((z - cz) / rz) ** 2 < 1;
 const inRect = (x: number, z: number, [x0, z0, x1, z1]: number[]) => x > x0 && x < x1 && z > z0 && z < z1;
 const BLOCKED_RECTS = [[-7.4, -4.7, -3.6, -1.3], [-8.9, 0.4, -5.9, 2.8], [2.2, -4.3, 4.6, -2.3]];
-const BLOCKED_SPOTS: V3[] = [[FIRE.x, FIRE.z, 1.0], [BED.x, BED.z, 0.8], [8.6, 1.2, 0.9], [8.0, -2.6, 0.9]];
+const BENCH = { x: 3.75, z: 1.25 }; // frente al estanque, de cara a la cámara (antes quedaba escondido entre dos árboles)
+const BLOCKED_SPOTS: V3[] = [[FIRE.x, FIRE.z, 1.0], [BED.x, BED.z, 0.8], [8.6, 1.2, 0.9], [BENCH.x, BENCH.z, 0.9]];
 
 // Roca de altura h y semiancho hw (las variantes miden 1 de alto), con la base en y.
 const rockItem = (x: number, y: number, z: number, hw: number, h: number, v: number, r: number, tilt = 0): Item =>
   ({ p: [x, y, z], s: [hw / ROCK_HW[v], h, hw / ROCK_HW[v]], r: [Math.sin(r * 3) * tilt, r, Math.cos(r * 2) * tilt], v });
-// Rocas de la orilla, con el pie dentro del agua (y = -1.5): [ángulo, semiancho, altura de la cima, variante].
+// Rocas de la playa, medio enterradas en la arena donde rompe el agua (el mar les pinta espuma): [ángulo,
+// semiancho, altura de la cima, variante].
 // Variantes: 0 mediana asimétrica, 1 achatada, 2 grande de muchas caras, 3 alargada, 4 grupito de piedras.
-const SHORE_ROCKS = ([[200, 1.1, 0.2, 2], [150, 0.9, -0.05, 0], [25, 1.2, 0.3, 2], [340, 0.85, -0.1, 3], [75, 0.9, -0.05, 0], [112, 0.75, -0.4, 4], [255, 0.8, -0.2, 3]] as const).map(([deg, hw, top, v]) => {
-  const [x, z] = edgeAt((deg * Math.PI) / 180, 1.04);
-  return { ...rockItem(x, -1.65, z, hw, top + 1.65, v, deg, 0.08), hw };
+const SHORE_ROCKS = ([[200, 1.0, -0.55, 2], [150, 0.8, -0.8, 0], [25, 1.05, -0.5, 2], [340, 0.75, -0.85, 3], [75, 0.8, -0.8, 0], [112, 0.7, -1.0, 4], [255, 0.7, -0.9, 3]] as const).map(([deg, hw, top, v]) => {
+  const [x, , z] = shoreAt((deg * Math.PI) / 180, WATERLINE - 0.35);
+  return { ...rockItem(x, -1.75, z, hw, top + 1.75, v, deg, 0.08), hw };
 });
 // Rocas sueltas por el césped, algo hundidas: [x, z, semiancho, alto, variante]. Una grande con otra pequeña al lado.
 const FIELD_ROCKS: [number, number, number, number, number][] = [[-7.2, 4.4, 0.52, 0.62, 2], [-7.85, 3.85, 0.38, 0.28, 1], [1.2, 5.7, 0.48, 0.5, 0], [1.85, 5.4, 0.34, 0.24, 3], [-4.2, -4.7, 0.42, 0.36, 4]];
@@ -177,7 +196,7 @@ const OCCLUDERS: V3[] = [
   ...TREES.map(([x, z, s]): V3 => [x, z, 1.3 * s]),
   ...BUSHES.map(([x, z, s]): V3 => [x, z, 1.0 * s]),
   ...FIELD_ROCKS.map(([x, z, hw]): V3 => [x, z, hw * 1.45]),
-  [FIRE.x, FIRE.z, 0.8], [8.0, -2.6, 1.0],
+  [FIRE.x, FIRE.z, 0.8], [BENCH.x, BENCH.z, 1.0],
 ];
 
 // Máscara de los caminos para el shader de la hierba (rojo: 1 dentro, 0.5 en el borde, 0 fuera, con un degradado
@@ -212,11 +231,12 @@ function pathMask() {
 // Color del césped compartido por el suelo y las briznas del pasto corto (cada brizna sale del tono del suelo que
 // tiene debajo): manchas muy suaves a dos escalas (la meseta tiene que leerse plana) y oclusión de contacto bajo
 // árboles, arbustos, rocas y casa.
-const LAWN = /* glsl */ `
+export const LAWN = /* glsl */ `
 const vec3 OCC[${OCCLUDERS.length}] = vec3[](${OCCLUDERS.map(o => `vec3(${o.map(f).join(', ')})`).join(', ')});
 vec3 lawnTint(vec2 p) {
   float n = vnoise(p * .28) * .6 + vnoise(p * 1.1) * .4;
-  return mix(vec3(.94, .98, .95), vec3(1.03, 1.02, .95), n);
+  float m = vnoise(p * 3.7 + 11.) * .55 + vnoise(p * 9.) * .45; // moteado fino: matas más oscuras y más claras (que no sea un verde liso)
+  return mix(vec3(.94, .98, .95), vec3(1.03, 1.02, .95), n) * mix(.84, 1.1, m);
 }
 float lawnAO(vec2 p) {
   float ao = 1.;
@@ -254,14 +274,33 @@ const GRASS = shaded({ color: C.grass, roughness: 0.95 }, {
   light: 'outgoingLight *= mix(.6, 1., smoothstep(.55, .985, inverseTransformDirection(normal, viewMatrix).y));',
 });
 
-const DIRT = shaded({ color: C.dirt, roughness: 1 }, {
-  key: 'dirt',
+const SAND = '#e0cfac';
+// Distancia radial al borde del césped de casa; w = ancho relativo de la playa en ese ángulo (shoreW, arriba).
+const SHORE_GLSL = /* glsl */ `
+float shoreO(vec2 p, out float w) {
+  float a = atan(p.y / ${f(RZ)}, p.x / ${f(RX)}), n = (a - ${f(DOCK_A)}) / .3;
+  w = (1. + .14 * sin(4. * a + 2.) + .07 * sin(9. * a + 1.)) * (1. - .45 * exp(-n * n));
+  return length(p) - length(vec2(cos(a) * ${f(RX)}, sin(a) * ${f(RZ)})) * (1. + .05 * sin(3. * a + 1.) + .03 * sin(5. * a + 2.));
+}`;
+// Orilla de casa: la hierba del borde baja un trecho por la ladera (más seca y amarillenta al acercarse a la arena,
+// con el límite mordido por ruido, no una línea), los caminos siguen hasta la playa, y la arena tiene grano, sombra
+// húmeda al pie de la hierba y una banda mojada junto al agua.
+const SHORE_MAT = shaded({ color: '#ffffff', roughness: 0.97 }, {
+  key: 'shore',
+  uniforms: { uPath: PATH_TEX },
+  head: `uniform sampler2D uPath;\n${LAWN}\n${SHORE_GLSL}`,
   color: /* glsl */ `
-    // estratos ondulados, más oscuro hacia abajo y banda húmeda justo encima del agua
-    float s = sin(vW.y * 8. + vnoise(vW.xz * .9) * 4.);
-    diffuseColor.rgb *= (.9 + .1 * smoothstep(-.3, .3, s)) * (.93 + .12 * vnoise(vW.xz * 4. + vW.y * 5.));
-    diffuseColor.rgb *= mix(.6, 1.04, smoothstep(-2.4, -.5, vW.y)) * mix(.78, 1., smoothstep(-1.52, -1.32, vW.y));`,
-  light: 'outgoingLight = mix(outgoingLight, diffuseColor.rgb * .55, .4);',
+    vec2 p = vW.xz;
+    float w, o = shoreO(p, w), u = o <= ${f(LIP)} ? o : ${f(LIP)} + (o - ${f(LIP)}) / w, a = atan(p.y / ${f(RZ)}, p.x / ${f(RX)});
+    float e = .55 + .2 * sin(7. * a + 2.) + .12 * sin(13. * a) + (vnoise(p * 2.3) - .5) * .4 + (vnoise(p * 7.) - .5) * .14; // hasta dónde baja la hierba
+    vec3 grass = vec3(${lin(C.grass)}) * lawnTint(p) * lawnAO(p) * mix(.82, 1., smoothstep(-.75, -.04, vW.y)) * mix(vec3(.93, .87, .6), vec3(1.), smoothstep(0., .5, e - u));
+    float pe = texture2D(uPath, (p + vec2(${f(RX)}, ${f(RZ)})) / vec2(${f(2 * RX)}, ${f(2 * RZ)})).r + (vnoise(p * 1.4) * .75 + vnoise(p * 4.) * .25 - .5) * .26;
+    vec3 dirt = vec3(${lin(C.path)}) * (.91 + .12 * vnoise(p * 1.6)) * mix(.84, 1.04, smoothstep(.5, .78, pe));
+    grass = mix(grass, dirt, smoothstep(.47, .53, pe));
+    vec3 sand = vec3(${lin(SAND)}) * (.93 + .1 * vnoise(p * 4.)) * (.97 + .06 * vnoise(p * 19.));
+    sand *= mix(vec3(.74, .76, .8), vec3(1.), smoothstep(-1.5, -1.38, vW.y)) * mix(.82, 1., smoothstep(0., .35, u - e));
+    diffuseColor.rgb = mix(sand, grass, 1. - smoothstep(-.06, .06, u - e));`,
+  light: 'outgoingLight *= mix(.6, 1., smoothstep(.55, .985, inverseTransformDirection(normal, viewMatrix).y));', // como el césped
 });
 
 // Agua: superficie plana; el movimiento está en la normal (ondas suaves), el color (más claro en lo
@@ -272,6 +311,7 @@ uniform float uTime;
 uniform vec3 uDeep;
 uniform vec3 uShallow;
 uniform vec3 uSky;
+uniform float uGlint; // destellos: 1 de día, casi nada al atardecer y de noche (parecían motas blancas)
 float cells(vec2 p, float t) { // distancia al borde de la celda de Voronoi más cercana, con bordes curvados
   p += (vec2(vnoise(p * .8 + t * .2), vnoise(p * .8 + 7.1 - t * .2)) - .5) * 1.1; // la deformación animada es lo que mueve las celdas
   vec2 i = floor(p), f = fract(p);
@@ -295,7 +335,7 @@ float sparkle(vec2 p, float t, float density) {
   return step(1. - density, h21(i + 3.1)) * tw * (1. - smoothstep(0., .1, length(f - o)));
 }`;
 
-const waterUniforms = () => ({ uTime, uDeep: { value: new THREE.Color() }, uShallow: { value: new THREE.Color() }, uSky: { value: new THREE.Color() } });
+const waterUniforms = () => ({ uTime, uDeep: { value: new THREE.Color() }, uShallow: { value: new THREE.Color() }, uSky: { value: new THREE.Color() }, uGlint: { value: 1 } });
 const waterMat = (key: string, head: string, color: string, k: { wave: number; refl: number; spark: number; dens: number }) => {
   const uniforms = waterUniforms();
   // Rugosidad media: el sol deja un brillo suave, no una franja blanca, gire como gire la isla.
@@ -306,25 +346,15 @@ const waterMat = (key: string, head: string, color: string, k: { wave: number; r
     normal: `vec2 g = ripple(vW.xz * ${f(k.wave)}, uTime) * ${f(1 / k.wave)} * (.35 + 1.1 * vnoise(vW.xz * .22 + uTime * .05));
       normal = normalize((viewMatrix * vec4(-g.x, 1., -g.y, 0.)).xyz);`,
     light: `outgoingLight = mix(outgoingLight, uSky, smoothstep(.3, .6, 1. - dot(normal, vec3(0., 0., 1.))) * ${f(k.refl)});
-      outgoingLight += sparkle(vW.xz * ${f(k.spark)}, uTime, ${f(k.dens)}) * .8;`,
+      outgoingLight += sparkle(vW.xz * ${f(k.spark)}, uTime, ${f(k.dens)}) * .8 * uGlint;`,
   });
   return { mat, uniforms };
 };
 
-// Repisa de arena al pie del acantilado: ancho por ángulo (el mismo en JS y en el shader del mar) y la fracción
-// de ese ancho donde la arena se mete bajo el agua (línea de orilla).
-const beachW = (a: number) => 0.34 + 0.1 * Math.sin(4 * a + 2) + 0.06 * Math.sin(9 * a + 1);
-const BEACH_WL = 0.64, SAND = '#e0cfac';
 
 const SEA = waterMat('sea', /* glsl */ `
   const vec3 ROCKS[${SHORE_ROCKS.length}] = vec3[](${SHORE_ROCKS.map(({ p: [x, , z], hw }) => `vec3(${f(x)}, ${f(z)}, ${f(hw * 0.95)})`).join(', ')});
-  // distancia (radial) al pie del acantilado; bw = ancho de la repisa de arena en ese ángulo
-  float islandD(vec2 p, out float bw) {
-    float a = atan(p.y / ${f(RZ)}, p.x / ${f(RX)});
-    float e = 1. + .05 * sin(3. * a + 1.) + .03 * sin(5. * a + 2.);
-    bw = .34 + .1 * sin(4. * a + 2.) + .06 * sin(9. * a + 1.);
-    return length(p) - length(vec2(cos(a) * ${f(RX)}, sin(a) * ${f(RZ)})) * e * .985 - .3;
-  }
+  ${SHORE_GLSL}
   float rockD(vec2 p) {
     float d = 1e3;
     for (int i = 0; i < ${SHORE_ROCKS.length}; i++) d = min(d, length(p - ROCKS[i].xy) - ROCKS[i].z);
@@ -332,12 +362,12 @@ const SEA = waterMat('sea', /* glsl */ `
   }`, /* glsl */ `
   // Orilla suave como en la referencia: el agua junto a la isla es casi la misma que la de lejos, la arena se ve
   // bajo el agua poco honda y se va perdiendo, y la espuma es una línea fina azul pálida (no un anillo blanco).
-  float bw, di = islandD(p, bw), wl = ${f(BEACH_WL)} * bw, d = min(di - wl, rockD(p)), sh = exp(-max(d, 0.) * .45);
+  float sw, di = shoreO(p, sw), wl = ${f(LIP)} + ${f(WATERLINE - LIP)} * sw, d = min(min(di - wl, rockD(p)), length(p - vec2(${f(GAMES[0])}, ${f(GAMES[1])})) - ${f(GAMES_SHORE)}), sh = exp(-max(d, 0.) * .45);
   vec3 col = mix(uDeep, uShallow, sh) * (.95 + .1 * vnoise(p * .06 + t * .02));
   float c = 1. - smoothstep(0., .28, cells(p * .42 + vec2(t * .02, 0.), t * .4));
   col = mix(col, uShallow * 1.2, c * (.06 + .14 * sh));
   if (d < 2.) { // lejos de la orilla no hay arena ni espuma: se ahorra el ruido
-    float under = 1. - smoothstep(wl, bw + .5 + .15 * vnoise(p * 1.3), di);
+    float under = 1. - smoothstep(wl, wl + .9 + .15 * vnoise(p * 1.3), di);
     col = mix(col, vec3(${lin(SAND)}) * .8 * mix(uShallow, vec3(1.), .5), under * .55);
     float foam = 1. - smoothstep(0., .1, d + .04 * vnoise(p * 3. + t * .6));
     float w = fract(t * .08);
@@ -347,12 +377,6 @@ const SEA = waterMat('sea', /* glsl */ `
   diffuseColor.rgb = col;`,
 { wave: 1, refl: 0.16, spark: 2.2, dens: 0.04 });
 
-// Arena de la repisa: seca arriba, más oscura y fría donde la moja el agua, y algo sombreada contra el acantilado.
-const BEACH = shaded({ color: SAND, roughness: 1 }, {
-  key: 'beach',
-  color: `diffuseColor.rgb *= (.94 + .1 * vnoise(vW.xz * 4.)) * mix(vec3(1.), vec3(.74, .76, .8), 1. - smoothstep(-1.5, -1.455, vW.y))
-    * mix(.82, 1., 1. - smoothstep(-1.445, -1.42, vW.y));`,
-});
 
 const POND = waterMat('pond', /* glsl */ `
   float pondDist(vec2 p) { return (1. - ${pondField(0)}) * 1.2; }`, /* glsl */ `
@@ -410,6 +434,21 @@ function noise2(x: number, z: number) {
   return (h2(i, j) * (1 - u) + h2(i + 1, j) * u) * (1 - v) + (h2(i, j + 1) * (1 - u) + h2(i + 1, j + 1) * u) * v;
 }
 const FENCES: [number, number][][] = [[[-8.9, 2.95], [-5.85, 2.95], [-5.85, 0.35]], [[-1.5, 6.1], [-0.4, 6.4]]];
+
+// Por dónde puede andar Pocky cuando se le toca un punto del suelo (fuera del grafo de nav.ts): la meseta de hierba
+// menos el agua y lo que hay plantado o construido, con margen para su cuerpo.
+const WALLS = [BLOCKED_RECTS[0], [-9.2, 0.2, -5.6, 3.25], [2.3, -4.15, 4.5, -2.5], [BENCH.x - 1.0, BENCH.z - 0.6, BENCH.x + 1.0, BENCH.z + 0.6]]; // casa, huerto, mantel, banco
+const SOLIDS: V3[] = [
+  ...TREES.map(([x, z, s]): V3 => [x, z, 0.5 * s]), ...BUSHES.map(([x, z, s]): V3 => [x, z, 0.55 * s]), ...FIELD_ROCKS.map(([x, z, hw]): V3 => [x, z, hw + 0.25]),
+  [FIRE.x, FIRE.z, 0.9], [BED.x, BED.z, 0.7], [8.3, 1.0, 0.5], [8.9, 1.45, 0.5], // hoguera, cama, cuencos
+  [-0.6, -6.4, 0.3], [1.9, -6.6, 0.3], [4.97, 1.66, 0.7], [6.13, 4.64, 0.7], // postes de las luces, extremos del puente
+  [-1.5, 6.1, 0.35], [-0.95, 6.25, 0.35], [-0.4, 6.4, 0.35], // valla del camino
+];
+export function walkable(x: number, z: number) {
+  if (Math.hypot(x / RX, z / RZ) > edgeR(Math.atan2(z / RZ, x / RX)) * 0.96) return false;
+  if (PONDS.some(p => inEllipse(x, z, p.x, p.z, p.rx + 0.45, p.rz + 0.45)) || WALLS.some(r => inRect(x, z, r))) return false;
+  return !SOLIDS.some(([sx, sz, r]) => Math.hypot(sx - x, sz - z) < r);
+}
 const ANCHORS: V3[] = [ // x, z, radio de influencia
   ...TREES.map(([x, z, s]): V3 => [x, z, 1.7 * s]),
   ...FIELD_ROCKS.map(([x, z, hw]): V3 => [x, z, hw * 2.8]),
@@ -474,40 +513,45 @@ function Ground() {
     grass.holes.push(new THREE.Path(pondOutline(POND_GROW)));
     const pond = new THREE.ShapeGeometry(new THREE.Shape(pondOutline(POND_GROW)));
     pond.rotateX(-Math.PI / 2);
-    // Repisa de arena: tres hileras alrededor del pie del acantilado (dentro de la pared, línea del agua, bajo el
-    // agua). Lo que queda por debajo de y = -1.5 lo tapa el mar, que pinta la arena sumergida.
-    const n = 160, rows: [number, number][] = [[-0.06, -1.42], [0.55, -1.48], [1, -1.6]], P: number[] = [], I: number[] = [];
+    // Orilla: una hilera por punto del perfil SHORE alrededor de la isla. Lo que queda por debajo de y = -1.5 lo
+    // tapa el mar, que pinta la arena sumergida.
+    const n = 200, m = SHORE.length, P: number[] = [], I: number[] = [];
     for (let i = 0; i <= n; i++) {
-      const a = (i / n) * Math.PI * 2, [ex, ez] = edgeAt(a, 0.985), L = Math.hypot(ex, ez), bw = beachW(a);
-      for (const [k, y] of rows) { const r = L + 0.3 + (k < 0 ? k : k * bw); P.push((ex / L) * r, y, (ez / L) * r); }
-      if (i < n) for (let j = 0; j < 2; j++) { const a0 = i * 3 + j, b0 = a0 + 3; I.push(a0, b0, a0 + 1, b0, b0 + 1, a0 + 1); }
+      for (const [u] of SHORE) P.push(...shoreAt((i / n) * Math.PI * 2, u));
+      if (i < n) for (let j = 0; j < m - 1; j++) { const a0 = i * m + j, b0 = a0 + m; I.push(a0, b0, a0 + 1, b0, b0 + 1, a0 + 1); }
     }
-    const beach = new THREE.BufferGeometry();
-    beach.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
-    beach.setIndex(I);
-    beach.computeVertexNormals();
-    return { grass: slab(grass, 0.3, 0.3, 0), dirt: slab(shape(0.985), 1.7, 0.3, -0.42), pond, beach };
+    const shore = new THREE.BufferGeometry();
+    shore.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+    shore.setIndex(I);
+    shore.computeVertexNormals();
+    const N = shore.attributes.normal, v = new THREE.Vector3(), w = new THREE.Vector3();
+    for (let j = 0; j < m; j++) { // la vuelta se cierra sobre sí misma: misma normal en la costura
+      v.fromBufferAttribute(N, j).add(w.fromBufferAttribute(N, n * m + j)).normalize();
+      N.setXYZ(j, v.x, v.y, v.z); N.setXYZ(n * m + j, v.x, v.y, v.z);
+    }
+    return { grass: slab(grass, 0.3, 0.3, 0), pond, shore };
   }, []);
   return (
     <>
       <mesh geometry={geos.grass} material={GRASS} receiveShadow />
-      <mesh geometry={geos.dirt} material={DIRT} receiveShadow castShadow />
-      <mesh geometry={geos.beach} material={BEACH} receiveShadow />
+      <mesh geometry={geos.shore} material={SHORE_MAT} receiveShadow />
       <mesh geometry={geos.pond} material={POND.mat} position-y={POND_Y} receiveShadow />
     </>
   );
 }
 
 // Mar alrededor de la isla. La espuma de la orilla la pinta el propio shader (ver SEA).
-function Water({ color, sky }: { color: string; sky: string }) {
+function Water({ color, sky, glow }: { color: string; sky: string; glow: number }) {
   useEffect(() => {
     const deep = new THREE.Color(color);
     SEA.uniforms.uDeep.value.copy(deep);
     SEA.uniforms.uShallow.value.copy(deep).offsetHSL(-0.012, -0.01, 0.04); // apenas más claro junto a la orilla
     POND.uniforms.uDeep.value.copy(deep).offsetHSL(-0.03, 0.02, 0.03);
     POND.uniforms.uShallow.value.copy(deep).offsetHSL(-0.06, 0.06, 0.17);
-    for (const u of [SEA.uniforms, POND.uniforms]) u.uSky.value.set(sky);
-  }, [color, sky]);
+    // Al atardecer y de noche el reflejo del cielo (rosa, morado) se apaga hacia el color del agua y casi no hay
+    // destellos: si no, el mar quedaba morado, a rayas y lleno de puntitos blancos.
+    for (const u of [SEA.uniforms, POND.uniforms]) { u.uSky.value.set(sky).lerp(deep, 0.8 * glow); u.uGlint.value = Math.max(0, 1 - 1.4 * glow); }
+  }, [color, sky, glow]);
   useFrame(({ clock }) => { uTime.value = clock.elapsedTime; });
   return (
     <mesh rotation-x={-Math.PI / 2} position={[0, -1.5, 0]} material={SEA.mat}>
@@ -536,7 +580,7 @@ const CARPET = shaded({ color: C.grass, roughness: 1, side: THREE.DoubleSide }, 
     transformed.xz += vTip * aOff.w * sin(uTime * 1.6 + aOff.x * .8 + aOff.y * .5) * vec2(.12, .08) + aOff.xy;
     vTint = lawnTint(aOff.xy) * lawnAO(aOff.xy) * (.93 + .14 * fract(sin(dot(aOff.xy, vec2(12.99, 78.23))) * 43758.5));`,
   head: 'varying vec3 vTint;\nvarying float vTip;',
-  color: 'diffuseColor.rgb *= vTint * mix(.9, 1.2, vTip);',
+  color: 'diffuseColor.rgb *= vTint * mix(.66, 1.28, vTip);', // pie oscuro, punta clara: se leen las briznas
   normal: 'normal = normalize((viewMatrix * vec4(0., 1., 0., 0.)).xyz);',
 });
 // Manojo de altura 1: tres briznas inclinadas hacia fuera en direcciones distintas.
@@ -549,24 +593,13 @@ const BLADES = (() => {
   return P;
 })();
 
-function GrassCarpet({ avoid }: { avoid: V3[] }) {
+/** Pasto: un manojo de briznas por celda dentro de `box` (x0, z0, x1, z1 del mundo) donde `free` lo permita. */
+export function Blades({ box: [x0, z0, x1, z1], free, seed = 99 }: { box: [number, number, number, number]; free: (x: number, z: number) => boolean; seed?: number }) {
   const geo = useMemo(() => {
-    const tex = (PATH_TEX.value ??= pathMask()), cv = tex.image as HTMLCanvasElement, k = cv.width / (2 * RX);
-    const mask = cv.getContext('2d')!.getImageData(0, 0, cv.width, cv.height).data;
-    const holes: V3[] = [...avoid, [FIRE.x, FIRE.z, 0.72], [BED.x, BED.z, 0.66], [8.3, 1.0, 0.36], [8.9, 1.45, 0.34],
-      ...TREES.map(([x, z, s]): V3 => [x, z, 0.28 * s]), ...FIELD_ROCKS.map(([x, z, hw]): V3 => [x, z, hw * 0.85])];
-    const rects = [[-7.2, -4.5, -3.8, -1.15], [-8.8, 0.5, -6.0, 2.7], [2.35, -4.15, 4.45, -2.45]];
-    const free = (x: number, z: number) => {
-      const a = Math.atan2(z / RZ, x / RX);
-      if (Math.hypot(x / RX, z / RZ) > edgeR(a) * 0.985) return false; // solo la meseta, no el borde que cae
-      if (mask[(Math.floor((z + RZ) * k) * cv.width + Math.floor((x + RX) * k)) * 4] > 0.4 * 255) return false; // camino
-      if (PONDS.some(p => inEllipse(x, z, p.x, p.z, p.rx + 0.32, p.rz + 0.32))) return false;
-      return !rects.some(r => inRect(x, z, r)) && !holes.some(([hx, hz, r]) => Math.hypot(x - hx, z - hz) < r);
-    };
-    const r = rng(99), off: number[] = [];
-    for (let x = -RX; x < RX; x += CARPET_CELL) for (let z = -RZ; z < RZ; z += CARPET_CELL) {
+    const r = rng(seed), off: number[] = [];
+    for (let x = x0; x < x1; x += CARPET_CELL) for (let z = z0; z < z1; z += CARPET_CELL) {
       const px = x + r() * CARPET_CELL, pz = z + r() * CARPET_CELL;
-      if (free(px, pz)) off.push(px, pz, r() * 6.28, 0.07 + r() * 0.06);
+      if (free(px, pz)) off.push(px, pz, r() * 6.28, 0.12 + r() * 0.13);
     }
     const g = new THREE.InstancedBufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(BLADES, 3));
@@ -574,8 +607,26 @@ function GrassCarpet({ avoid }: { avoid: V3[] }) {
     g.setAttribute('aOff', new THREE.InstancedBufferAttribute(new Float32Array(off), 4));
     g.instanceCount = off.length / 4;
     return g;
-  }, [avoid]);
+  }, [x0, z0, x1, z1, free, seed]);
   return <mesh geometry={geo} material={CARPET} receiveShadow frustumCulled={false} />;
+}
+
+function GrassCarpet({ avoid }: { avoid: V3[] }) {
+  const free = useMemo(() => {
+    const tex = (PATH_TEX.value ??= pathMask()), cv = tex.image as HTMLCanvasElement, k = cv.width / (2 * RX);
+    const mask = cv.getContext('2d')!.getImageData(0, 0, cv.width, cv.height).data;
+    const holes: V3[] = [...avoid, [FIRE.x, FIRE.z, 0.72], [BED.x, BED.z, 0.66], [8.3, 1.0, 0.36], [8.9, 1.45, 0.34],
+      ...TREES.map(([x, z, s]): V3 => [x, z, 0.28 * s]), ...FIELD_ROCKS.map(([x, z, hw]): V3 => [x, z, hw * 0.85])];
+    const rects = [[-7.2, -4.5, -3.8, -1.15], [-8.8, 0.5, -6.0, 2.7], [2.35, -4.15, 4.45, -2.45]];
+    return (x: number, z: number) => {
+      const a = Math.atan2(z / RZ, x / RX);
+      if (Math.hypot(x / RX, z / RZ) > edgeR(a) * 0.985) return false; // solo la meseta, no el borde que cae
+      if (mask[(Math.floor((z + RZ) * k) * cv.width + Math.floor((x + RX) * k)) * 4] > 0.4 * 255) return false; // camino
+      if (PONDS.some(p => inEllipse(x, z, p.x, p.z, p.rx + 0.32, p.rz + 0.32))) return false;
+      return !rects.some(r => inRect(x, z, r)) && !holes.some(([hx, hz, r]) => Math.hypot(x - hx, z - hz) < r);
+    };
+  }, [avoid]);
+  return <Blades box={[-RX, -RZ, RX, RZ]} free={free} />;
 }
 
 // Piedra (zócalo y chimenea): sillares en hileras alternas con juntas más oscuras.
@@ -867,7 +918,7 @@ function Bench() {
     return { slats, frame };
   }, []);
   return (
-    <group position={[8.0, 0, -2.6]} rotation-y={0.35}>
+    <group position={[BENCH.x, 0, BENCH.z]}>
       <Scatter geo={BOX} mat={MAT.wood} items={d.slats} />
       <Scatter geo={BOX} mat={MAT.wood} items={d.frame} color={C.woodDark} />
     </group>
@@ -895,8 +946,8 @@ function PetCorner() {
   );
 }
 
-function Dock({ glow }: { glow: number }) {
-  const a = 0.87, [x, z] = edgeAt(a), dir = Math.atan2(Math.cos(a) / RX, Math.sin(a) / RZ);
+// Embarcadero: sale del borde en `at` hacia `dir`. Hay uno en cada isla; entre los dos va la barca.
+export function Dock({ glow, at: [x, z], dir }: { glow: number; at: readonly [number, number]; dir: number }) {
   const d = useMemo(() => {
     const r = rng(13), j = (k: number) => (r() - 0.5) * k;
     const planks: Item[] = Array.from({ length: 8 }, (_, i) => ({ p: [j(0.05), -0.32, -0.1 + i * 0.32], s: [1.1 + j(0.08), 0.07, 0.27 + j(0.03)], r: [j(0.02), j(0.05), j(0.02)], c: pick(WOODS, r) }));
@@ -995,8 +1046,8 @@ export default function Island({ waterColor, sky, glow }: { waterColor: string; 
     const clovers = scatterDecor(51, 12, (x, z, _, rr) => [{ p: [x, 0, z], s: 0.8 + rr() * 0.5, r: rr() * 6.28, c: pick(['#86cc58', '#96d564', '#78c04e'], rr) }]);
 
     // estanque: nenúfares con muesca, lotos encima y eneas en la orilla (pie a la altura del agua)
-    const lilies: Item[] = ([[3.0, 3.0], [4.6, 3.9], [3.6, 4.2], [6.9, 2.7], [2.6, 3.8]] as const).map(([x, z], i) => ({ p: [x, POND_Y + 0.004, z], s: 0.27 - i * 0.02, r: i * 2.1 + 0.5, c: ['#5cb03c', '#6cbd46', '#4fa236'][i % 3] }));
-    const lotus: Item[] = [{ p: [4.6, POND_Y + 0.035, 3.9], s: 0.085, r: 0.3, c: '#ff9fc4' }, { p: [3.0, POND_Y + 0.035, 3.0], s: 0.075, r: 1.1, c: '#ffffff' }];
+    const lilies: Item[] = ([[2.4, 3.2], [4.6, 3.9], [3.6, 4.2], [6.9, 2.7], [2.6, 3.8]] as const).map(([x, z], i) => ({ p: [x, POND_Y + 0.004, z], s: 0.27 - i * 0.02, r: i * 2.1 + 0.5, c: ['#5cb03c', '#6cbd46', '#4fa236'][i % 3] }));
+    const lotus: Item[] = [{ p: [4.6, POND_Y + 0.035, 3.9], s: 0.085, r: 0.3, c: '#ff9fc4' }, { p: [2.4, POND_Y + 0.035, 3.2], s: 0.075, r: 1.1, c: '#ffffff' }]; // lejos de por donde entra Pocky a bañarse
     const reeds: Item[] = [[2.0, 4.3], [2.2, 4.6], [1.8, 4.0], [7.7, 3.4], [7.9, 3.1], [5.2, 4.6]].map(([x, z], i) => ({ p: [x, POND_Y, z], s: 0.85 + (i % 3) * 0.15, r: i * 2.2 }));
 
     const gardenFence = fence(FENCES[0], 3);
@@ -1010,10 +1061,21 @@ export default function Island({ waterColor, sky, glow }: { waterColor: string; 
     const sprouts: Item[] = [];
     for (let row = 0; row < 3; row++) for (let k = 0; k < 5; k++) sprouts.push({ p: [-8.4 + k * 0.5 + (r() - 0.5) * 0.08, 0.15, 0.95 + row * 0.6], s: 0.85 + r() * 0.35, r: r() * 6.28, c: k % 2 ? '#5fa83a' : '#7cc24e' });
 
+    // La hierba baja a la orilla: matas verdes por la ladera y, ya en la arena, matas de duna más secas (ni delante
+    // del embarcadero ni donde los caminos llegan a la playa). Y guijarros sueltos por la arena.
+    const dune: Item[] = [];
+    for (let i = 0; i < 220; i++) {
+      const a = r() * Math.PI * 2, sand = i % 3 === 0, [x, y, z] = shoreAt(a, sand ? 0.8 + r() * 0.8 : 0.2 + r() * 0.5);
+      if (Math.abs(a - DOCK_A) > 0.2 && !(Math.abs(z) > 6 && Math.abs(x + 1.2) < 3.2)) dune.push({ p: [x, y - 0.02, z], s: 0.5 + r() * 0.5, r: r() * 6.28, v: i % 5, c: pick(sand ? ['#a9c46a', '#b9cc78', '#8fbf58'] : GRASS_TONES, r) });
+    }
+    for (let i = 0; i < 34; i++) {
+      const [x, y, z] = shoreAt(r() * Math.PI * 2, 1.0 + r() * 1.6);
+      rocks.push(rockItem(x, y - 0.03, z, 0.06 + r() * 0.1, 0.05 + r() * 0.07, i % 4, i * 1.9, 0.1));
+    }
     const white = (l: Item[]) => l.map(it => ({ ...it, c: undefined })); // botones y tallos: su propio color por vértice
     const carpetAvoid = stones.map(({ p: [x, , z], s }): V3 => [x, z, Math.max((s as V3)[0], (s as V3)[2]) * 1.05]); // sin pasto bajo las losas
     return {
-      carpetAvoid, stones, pebbles, pathStones, trees, trunks, bushes, blossoms, blossomCores: white(blossoms), rocks, flowers, flowerCores: white(flowers), tufts, clovers,
+      carpetAvoid, dune, stones, pebbles, pathStones, trees, trunks, bushes, blossoms, blossomCores: white(blossoms), rocks, flowers, flowerCores: white(flowers), tufts, clovers,
       lilies, lotus, lotusCores: lotus.map(l => ({ ...l, p: [l.p[0], l.p[1] + 0.01, l.p[2]] as V3, s: 0.05, c: undefined })), reeds,
       posts: [...gardenFence.posts, ...pathFence.posts], rails: [...gardenFence.rails, ...pathFence.rails], mounds, bedBoards, sprouts,
     };
@@ -1021,7 +1083,7 @@ export default function Island({ waterColor, sky, glow }: { waterColor: string; 
 
   return (
     <group>
-      <Water color={waterColor} sky={sky} />
+      <Water color={waterColor} sky={sky} glow={glow} />
       <Ground />
       <GrassCarpet avoid={d.carpetAvoid} />
       <Variants geos={FLAGS} mat={MAT.rock} items={d.stones} color={C.stone} shadow={false} />
@@ -1036,6 +1098,7 @@ export default function Island({ waterColor, sky, glow }: { waterColor: string; 
       <Variants geos={FLOWERS} mat={MAT.vcol} items={d.flowers} shadow={false} />
       <Scatter geo={FLOWER_CORE} mat={MAT.vcol} items={d.flowerCores} shadow={false} />
       <Variants geos={TUFTS} mat={MAT.vcol} items={d.tufts} shadow={false} />
+      <Variants geos={TUFTS} mat={MAT.vcol} items={d.dune} shadow={false} />
       <Scatter geo={CLOVER} mat={MAT.vcol} items={d.clovers} shadow={false} />
       <Scatter geo={LILY_PAD} mat={MAT.vcol} items={d.lilies} shadow={false} />
       <Scatter geo={LOTUS} mat={MAT.vcol} items={d.lotus} shadow={false} />
@@ -1055,7 +1118,7 @@ export default function Island({ waterColor, sky, glow }: { waterColor: string; 
       <Picnic />
       <Bench />
       <PetCorner />
-      <Dock glow={glow} />
+      <Dock glow={glow} at={[PIER.x, PIER.z]} dir={Math.atan2(PIER.dx, PIER.dz)} />
     </group>
   );
 }

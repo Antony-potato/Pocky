@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { joinError, homesError, newCode, normalizeCode, DEFAULT_MAX_MEMBERS } from '../src/lib/home.ts';
 import { weatherKind } from '../src/lib/weather.ts';
-import { NODES, EDGES, findPath, nearestNode, WANDER, POI, TREAT_SPOTS, POOP_XZ } from '../src/components/scene/nav.ts';
+import { NODES, EDGES, findPath, nearestNode, WANDER, POI, TREAT_SPOTS, POOP_XZ, groundY, BOAT_Y, PIER_Y, skyCenter, GAMES } from '../src/components/scene/nav.ts';
 import { applyTick, applyAction, getNeeds, clamp, visiblePoops, POOP_SPOTS, ACCESSORIES, syncedFields, computeAge, currentStreak, partnerSummary, DEFAULT_PET, cancunHour, cancunDay, isQuietHour } from '../src/lib/petLogic.ts';
 
 // Hora de Cancún (UTC−5 todo el año), da igual la zona del móvil o del servidor.
@@ -22,6 +22,10 @@ for (const to of [...WANDER, ...Object.values(POI).map(p => p.node)]) {
 assert.deepEqual(findPath('s2', 'bowl'), ['s2', 's', 'field', 'play', 'bowl']); // más corto que pasar por el centro
 assert.equal(nearestNode([7.4, -0.3]), 'bed');
 assert.ok(Object.keys(NODES).length > 10);
+// Isla de juegos: solo se llega en barca, y Pocky pisa hierba → tablas → barca → tablas → hierba.
+assert.deepEqual(findPath('c', 'gc').slice(-7), ['dock', 'pier', 'boatA', 'boatB', 'gPier', 'gDock', 'gc']);
+assert.deepEqual(['dock', 'pier', 'boatA', 'boatB', 'gPier', 'gDock', 'g2', 'c'].map(n => groundY(...NODES[n])), [0, PIER_Y, BOAT_Y, BOAT_Y, PIER_Y, 0, 0, 0]);
+assert.deepEqual([skyCenter(...NODES.bed), skyCenter(...NODES.g3)], [[0, 0], [...GAMES]], 'el sol está sobre la isla donde está Pocky');
 // Golosinas: los claros donde caen están lejos de la casa (x -7..-4, z -4.3..-1.7) y del estanque.
 for (const id of TREAT_SPOTS) {
   const [x, z] = NODES[id];
@@ -229,5 +233,75 @@ assert.deepEqual([0, 1, 3, 45, 61, 73, 82, 86, 95].map(weatherKind), ['clear', '
 assert.equal(weatherKind(0, 77), 'cloudy', 'código "despejado" pero cielo cubierto: nublado');
 assert.equal(weatherKind(0, 30), 'clear');
 assert.equal(weatherKind(61, 100), 'rain', 'la lluvia manda sobre las nubes');
+
+// Minijuegos de la isla. Rompeladrillos: con la pala siguiendo a la pelota no se pierde y se rompen ladrillos.
+{
+  const { newBrick, launch, stepBrick, W, H } = await import('../src/lib/brick.ts');
+  const g = newBrick();
+  launch(g);
+  for (let i = 0; i < 60 * 60; i++) { g.px = g.x + 9 * Math.sin(i / 7); stepBrick(g, 1 / 60); assert.ok(g.x >= 0 && g.x <= W && g.y >= 0 && g.y <= H, 'la pelota no se sale'); }
+  assert.equal(g.lives, 3);
+  assert.ok(g.score >= 100, 'rompe ladrillos');
+  const lost = newBrick();
+  launch(lost);
+  for (let i = 0; i < 60 * 60 && !lost.over; i++) { lost.px = lost.x < W / 2 ? W : 0; stepBrick(lost, 1 / 60); if (lost.stuck) launch(lost); }
+  assert.ok(lost.over, 'esquivando la pelota se acaban las vidas');
+}
+// Pelota saltarina: cada nivel está bien formado; la pelota se posa en el suelo, salta, y los pinchos la devuelven.
+{
+  const { LEVELS, newBounce, stepBounce, T, R } = await import('../src/lib/bounce.ts');
+  LEVELS.forEach((m, i) => { const all = m.join(''); assert.ok(all.split('P').length === 2 && all.split('E').length === 2 && all.includes('o') && m.length <= 10, 'nivel ' + (i + 1)); });
+  const g = newBounce(0), still = { dir: 0, jump: false };
+  for (let i = 0; i < 30; i++) stepBounce(g, still, 1 / 60);
+  assert.ok(g.ground && g.y === 9 * T - R, 'se posa sobre el suelo');
+  stepBounce(g, { dir: 0, jump: true }, 1 / 60);
+  assert.ok(g.vy < 0 && !g.ground, 'salta');
+  for (let i = 0; i < 600 && !g.deaths; i++) stepBounce(g, { dir: 1, jump: false }, 1 / 60); // todo a la derecha sin saltar: cae al hueco
+  assert.equal(g.deaths, 1);
+  assert.ok(g.got.some(Boolean) && Math.abs(g.x - g.start[0]) < 3, 'vuelve a la salida y conserva la galleta que cogió');
+}
+
+// Carrera: quien mira la fila que viene y se aparta aguanta; quien no hace nada, choca; un tronco se salta.
+{
+  const { newRunner, stepRunner, steer, jump, score } = await import('../src/lib/runner.ts');
+  for (const seed of [1, 2, 3]) {
+    const g = newRunner(seed);
+    for (let i = 0; i < 60 * 90 && !g.over; i++) {
+      const z = Math.min(...g.things.filter(t => t.kind !== 'cookie' && t.z > g.dist + 1.7).map(t => t.z)), row = g.things.filter(t => t.z === z && t.kind !== 'cookie');
+      if (z - g.dist < 24 && row.some(t => t.lane === g.lane)) {
+        const free = [-1, 0, 1].filter(l => !row.some(t => t.lane === l)).sort((a, b) => Math.abs(a - g.lane) - Math.abs(b - g.lane))[0];
+        steer(g, Math.sign(free - g.lane));
+      }
+      stepRunner(g, 1 / 60);
+    }
+    assert.ok(!g.over && g.speed > 40 && score(g) > 500, 'esquivando se aguanta 90 s (semilla ' + seed + ')');
+    const lazy = newRunner(seed);
+    for (let i = 0; i < 60 * 90 && !lazy.over; i++) stepRunner(lazy, 1 / 60);
+    assert.ok(lazy.over, 'sin esquivar se choca');
+  }
+  const g = newRunner(1);
+  g.things = [{ z: 30, lane: 0, kind: 'log' }]; g.nextRow = 1e9;
+  for (let i = 0; i < 120; i++) { if (30 - g.dist < 9) jump(g); stepRunner(g, 1 / 60); }
+  assert.ok(!g.over && g.dist > 40, 'el tronco se salta');
+}
+
+// Toque en el suelo: recto si no hay nada en medio; si no, por el grafo (en barca a la otra isla) y nunca pisa
+// donde no se puede.
+{
+  const { reach, walkRoute, entryNode } = await import('../src/components/scene/nav.ts');
+  const all = () => true, isles = (x, z) => Math.hypot(x, z) < 6.5 || Math.hypot(x - GAMES[0], z - GAMES[1]) < 4.5;
+  const b = [2, 0];
+  assert.equal(reach([0, 0], b, all), b);
+  const stop = reach([0, 0], b, x => x < 1);
+  assert.ok(stop[0] < 1 && stop[0] > 0.8, 'se para justo antes de lo que no se pisa');
+  assert.deepEqual(walkRoute(NODES.c, [1, 1], all), [[1, 1]]);
+  const to = [GAMES[0] + 1, GAMES[1] + 2], trip = walkRoute(NODES.c, to, isles);
+  assert.ok(trip.includes(NODES.boatA) && trip.includes(NODES.boatB), 'a la otra isla se va en barca');
+  assert.deepEqual(trip.at(-1), to);
+  const wet = walkRoute(NODES.c, [0, 12], isles).at(-1); // tocaron el mar: se queda en la orilla
+  assert.ok(isles(...wet) && wet[1] > 5.5);
+  assert.equal(entryNode([0.3, -0.3], all), 'c');
+  assert.equal(groundY(NODES.pier[0] + 3 * 0.8383, NODES.pier[1] - 3 * 0.5452), 0, 'a un lado del embarcadero no hay tablas');
+}
 
 console.log('ok');

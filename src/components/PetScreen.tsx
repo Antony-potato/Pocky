@@ -7,10 +7,12 @@ import ActivityLog from './ActivityLog';
 import Wardrobe from './Wardrobe';
 import SettingsPanel from './Settings';
 import Splash from './Splash';
+import { IslandBar, IslandScreens } from './Arcade';
+import { useIsland } from '@/store/islandStore';
 import { fetchWeather, weatherKind, WEATHER_LABEL, type Weather, type WeatherKind } from '@/lib/weather';
 import { requestNotificationPermission } from '@/lib/messaging';
 import { computeAge, currentStreak, refuses, MEDICINE_BELOW, ACCESSORIES, type PetAction } from '@/lib/petLogic';
-import { Utensils, Candy, ShowerHead, TreePine, Gamepad2, Pill, Moon, Sun, Settings, PawPrint, WifiOff, Wifi, Flame, Shirt, History as HistoryIcon,
+import { Utensils, Candy, ShowerHead, Sailboat, Home, Gamepad2, Pill, Moon, Sun, Settings, PawPrint, WifiOff, Wifi, Flame, Shirt, History as HistoryIcon,
   Cloud, CloudFog, CloudRain, CloudSnow, CloudLightning, type LucideIcon } from 'lucide-react';
 
 const WEATHER_ICON: Record<WeatherKind, LucideIcon> = { clear: Sun, cloudy: Cloud, fog: CloudFog, rain: CloudRain, snow: CloudSnow, storm: CloudLightning };
@@ -147,11 +149,14 @@ export default function PetScreen({ petId, homes, me, admin }: {
   const onWorldReady = useCallback(() => setWorldReady(true), []);
   const onSplashDone = useCallback(() => setSplash(false), []);
 
-  const actions: { id: PetAction; activityId: string; Icon: LucideIcon; style: IconStyle; color: string; label: string }[] = [
+  // El cuarto botón no es una acción de cuidado: manda a Pocky en barca a la isla de juegos (o de vuelta a casa).
+  const there = useIsland(s => s.there);
+  const actions: { id: PetAction | 'island'; activityId: string; Icon: LucideIcon; style: IconStyle; color: string; label: string }[] = [
     { id: 'feed', activityId: 'eating', Icon: Utensils, style: 'line', color: '#ff9f43', label: 'Alimentar' },
     { id: 'treat', activityId: 'snacking', Icon: Candy, style: 'cutout', color: '#f0506e', label: 'Golosina' },
     { id: 'bathe', activityId: 'bathing', Icon: ShowerHead, style: 'line', color: '#38bdf8', label: 'Bañar' },
-    { id: 'walk', activityId: 'walking', Icon: TreePine, style: 'solid', color: '#34d399', label: 'Pasear' },
+    there ? { id: 'island', activityId: '-', Icon: Home, style: 'line', color: '#34d399', label: 'Volver a casa' }
+      : { id: 'island', activityId: '-', Icon: Sailboat, style: 'line', color: '#34d399', label: 'Ir a la isla de juegos' },
     { id: 'play', activityId: 'playing', Icon: Gamepad2, style: 'cutout', color: '#c084fc', label: 'Jugar' },
     // Solo cuando le hace falta (o mientras se la toma): el resto del tiempo el dock se queda en 6.
     ...(pet.health < MEDICINE_BELOW || pet.activity === 'healing'
@@ -167,7 +172,7 @@ export default function PetScreen({ petId, homes, me, admin }: {
   const highlight = busy
     ? (actions.find(a => a.id === pressed && a.activityId === pet.activity) ?? actions.find(a => a.activityId === pet.activity))?.id
     : SUGGEST[pet.needs?.[0]?.id ?? ''];
-  // Jugando: la píldora explica el minijuego (tocar el césped lanza la pelota, ver BallField).
+  // Jugando: la píldora explica el minijuego (tocar el césped lanza la pelota, ver TapField).
   const highlightLabel = pet.activity === 'playing' ? 'Toca el césped para lanzarle la pelota 🎾' : actions.find(a => a.id === highlight)?.label;
   const offline = !splash && !pet.isConnected;
 
@@ -262,13 +267,14 @@ export default function PetScreen({ petId, homes, me, admin }: {
 
         {/* ===== DOCK de acciones: anclado abajo (fuera del flujo) para que quepa también en horizontal ===== */}
         <div className="absolute inset-x-0 bottom-[max(1.25rem,env(safe-area-inset-bottom))] flex flex-col items-center gap-2">
+          <IslandBar />
           <div className={`${PILL} rounded-full px-3.5 py-1 text-white font-extrabold text-[15px] transition-opacity duration-300 ${highlightLabel ? 'opacity-100' : 'opacity-0'}`}>
             {highlightLabel ?? '·'}
           </div>
           <div className={`${PILL} pointer-events-auto rounded-full p-[var(--gap)] flex gap-[var(--gap)]`}>
             {actions.map(a => {
               // Ocupado: solo queda encendida la acción en curso. Libre: apagadas las que no quiere (lleno o sin energía).
-              const off = (pet.isAsleep && a.id !== 'wake') || (busy ? a.activityId !== pet.activity : refuses(pet, a.id));
+              const off = a.id === 'island' ? pet.isAsleep || busy : (pet.isAsleep && a.id !== 'wake') || (busy ? a.activityId !== pet.activity : refuses(pet, a.id));
               const active = a.id === highlight && !off;
               return (
                 <button
@@ -277,7 +283,7 @@ export default function PetScreen({ petId, homes, me, admin }: {
                     if (off) return;
                     navigator.vibrate?.(50);
                     setPressed(a.id);
-                    pet.act(a.id);
+                    if (a.id === 'island') useIsland.setState(s => (there ? { homeAsked: s.homeAsked + 1 } : { goAsked: s.goAsked + 1 })); else pet.act(a.id);
                   }}
                   disabled={off}
                   aria-label={a.label} title={a.label}
@@ -292,6 +298,7 @@ export default function PetScreen({ petId, homes, me, admin }: {
         </div>
       </div>
 
+      <IslandScreens petId={petId} />
       {showLog && <ActivityLog pet={pet} me={getDeviceId()} onClose={() => setShowLog(false)} />}
       {showWardrobe && <Wardrobe pet={pet} onWear={id => pet.act('wear', id)} onClose={() => setShowWardrobe(false)} />}
       {showSettings && <SettingsPanel pet={pet} petId={petId} homes={homes} me={me} admin={admin} onNotifications={handleEnableNotifications} onClose={() => setShowSettings(false)} />}

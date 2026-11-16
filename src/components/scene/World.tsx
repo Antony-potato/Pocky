@@ -5,18 +5,19 @@ import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import Island from './Island';
-import Pocky, { pockyPos, BallField } from './Pocky';
+import GamesIsland from './GamesIsland';
+import { skyCenter, sailK, K_B, GAMES } from './nav';
+import Pocky, { pockyPos, TapField } from './Pocky';
 import Poops from './Poops';
 import Rain from './Rain';
-import Clouds from './Clouds';
 import { getTimePhase } from '@/lib/timeBackground';
 import type { WeatherKind } from '@/lib/weather';
 
 // Cuánto sol deja pasar cada clima (el de la ciudad del hogar).
 const SUN: Record<WeatherKind, number> = { clear: 1, cloudy: 0.6, fog: 0.55, snow: 0.6, rain: 0.45, storm: 0.35 };
-// Cuánto se agrisan cielo y mar, y cuántas nubes pasan.
+// Cuánto se agrisan cielo y mar. Nublado es solo eso: luz gris (hubo nubes pasando por encima y se quitaron).
+// ponytail: el cielo gris sigue a Pocky entre islas por si un día vuelve a haber algo más que lluvia ahí.
 const GLOOM: Record<WeatherKind, number> = { clear: 0, cloudy: 0.45, fog: 0.55, snow: 0.5, rain: 0.65, storm: 0.8 };
-const CLOUDS: Record<WeatherKind, number> = { clear: 0, cloudy: 6, fog: 4, snow: 6, rain: 8, storm: 9 };
 const grey = (hex: string, weather: WeatherKind, night: boolean) =>
   '#' + new THREE.Color(hex).lerp(new THREE.Color(night ? '#262c3c' : '#8d98a3'), GLOOM[weather]).getHexString();
 
@@ -38,7 +39,9 @@ function CameraRig() {
   useFrame((_, dt) => {
     if (!controls) return;
     const t = controls.target, k = 1 - Math.exp(-Math.min(dt, 0.1) * 2.5);
-    const dx = (pockyPos.x - t.x) * k, dz = (pockyPos.z - t.z) * k;
+    // En la isla de juegos no sigue a Pocky: encuadra la isla entera (algo hacia el fondo, para que entre la pantalla del cine).
+    const there = sailK(pockyPos.x, pockyPos.z) > K_B + 1.5, fx = there ? GAMES[0] : pockyPos.x, fz = there ? GAMES[1] - 1.2 : pockyPos.z;
+    const dx = (fx - t.x) * k, dz = (fz - t.z) * k;
     t.x += dx; t.z += dz;
     camera.position.x += dx; camera.position.z += dz;
   });
@@ -80,11 +83,19 @@ function StatusTint({ onTint }: { onTint: (color: string) => void }) {
 // Fondo, cielo y sol según la hora. Sombras anchas y suaves (estilo maqueta de arcilla, no recortes duros).
 export function Lights({ hour, weather = 'clear' }: { hour: number; weather?: WeatherKind }) {
   const ph = getTimePhase(hour);
+  const sun = useRef<THREE.DirectionalLight>(null!);
+  // El sol (y el recuadro de sus sombras) acompaña a Pocky cuando cruza a la isla de juegos.
+  useFrame(() => {
+    const [x, z] = skyCenter(pockyPos.x, pockyPos.z);
+    sun.current.position.set(7 + x, 14, 8.5 + z);
+    sun.current.target.position.set(x, 0, z);
+    sun.current.target.updateMatrixWorld();
+  });
   return (
     <>
       <color attach="background" args={[grey(ph.water, weather, ph.isNight)]} />
       <hemisphereLight color={grey(ph.sky, weather, ph.isNight)} groundColor={ph.ground} intensity={ph.hemiIntensity} />
-      <directionalLight
+      <directionalLight ref={sun}
         position={[7, 14, 8.5]} color={ph.sun} intensity={ph.sunIntensity * SUN[weather]} castShadow
         shadow-mapSize={[1024, 1024]} shadow-radius={6} shadow-bias={-0.0004} shadow-normalBias={0.03}
         shadow-camera-left={-13} shadow-camera-right={13} shadow-camera-top={13} shadow-camera-bottom={-13}
@@ -94,6 +105,13 @@ export function Lights({ hour, weather = 'clear' }: { hour: number; weather?: We
   );
 }
 
+// Lluvia o nieve: sobre la isla en la que esté Pocky.
+function Sky({ children }: { children: React.ReactNode }) {
+  const ref = useRef<THREE.Group>(null!);
+  useFrame(() => { const [x, z] = skyCenter(pockyPos.x, pockyPos.z); ref.current.position.set(x, 0, z); });
+  return <group ref={ref}>{children}</group>;
+}
+
 export default function World({ hour, weather = 'clear', onReady, onTint }: { hour: number; weather?: WeatherKind; onReady?: () => void; onTint?: (color: string) => void }) {
   const ph = getTimePhase(hour);
   return (
@@ -101,12 +119,14 @@ export default function World({ hour, weather = 'clear', onReady, onTint }: { ho
     <Canvas shadows="percentage" orthographic dpr={[1, 2]} gl={{ toneMapping: THREE.NeutralToneMapping }}
       camera={{ position: OFFSET, zoom: 40, near: 0.1, far: 100 }}>
       <Lights hour={hour} weather={weather} />
-      {(weather === 'rain' || weather === 'storm' || weather === 'snow') && <Rain snow={weather === 'snow'} />}
-      {CLOUDS[weather] > 0 && <Clouds count={CLOUDS[weather]} dark={weather === 'rain' || weather === 'storm'} />}
+      <Sky>
+        {(weather === 'rain' || weather === 'storm' || weather === 'snow') && <Rain snow={weather === 'snow'} />}
+      </Sky>
       <Island waterColor={grey(ph.water, weather, ph.isNight)} sky={grey(ph.sky, weather, ph.isNight)} glow={ph.glow} />
+      <GamesIsland glow={ph.glow} />
       <Pocky />
       <Poops />
-      <BallField />
+      <TapField />
       <CameraRig />
       <FirstFrame onReady={onReady} />
       {onTint && <StatusTint onTint={onTint} />}
