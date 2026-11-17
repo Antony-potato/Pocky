@@ -12,7 +12,7 @@ Una mascota virtual compartida entre dos personas, construida con Next.js PWA + 
 - 📦 APK — se instala en Android sin Google Play
 - ⏰ Degradación 24/7 aunque nadie tenga la app abierta (cron-job.org)
 - 🔔 Notificaciones push gratis con Firebase Cloud Messaging (Chrome, Android e iPhone con Pocky en la pantalla de inicio); se activan con el botón 🔔
-- 🖼️ Widget en pantalla de inicio via Scriptable (próximamente)
+- 🖼️ Widget en la pantalla de inicio (Scriptable en iPhone, KWGT en Android)
 
 ---
 
@@ -177,11 +177,28 @@ npx cap open android   # abre Android Studio para generar el APK
 
 ---
 
-## 🖼️ Widget con Scriptable (iPhone)
+## 🖼️ Widget en la pantalla de inicio (iPhone y Android)
 
-> Próximamente — ver Fase 5 del roadmap
+Una PWA no puede tener widgets propios: lo pinta una app de widgets, que pide una imagen al servidor (`/api/widget`) con Pocky, qué necesita y sus barras. Se pone al día sola más o menos cada 15 min (el momento exacto lo decide el sistema) y al tocarla abre Pocky. No se le puede dar de comer desde el widget.
 
-Scriptable lee Firebase directamente y muestra el estado de Pocky en tu pantalla de inicio.
+Todo sale de **Ajustes → Widget** en la app.
+
+**iPhone (Scriptable, gratis)**
+
+1. Instala [Scriptable](https://apps.apple.com/app/scriptable/id1405459188).
+2. En Pocky: Ajustes → Widget → **iPhone: copiar script**.
+3. En Scriptable: **+**, pega, y ponle de nombre `Pocky`.
+4. Pantalla de inicio: mantén pulsado → Editar → Añadir widget → Scriptable (pequeño o mediano).
+5. Mantén pulsado el widget → Editar widget → Script: `Pocky`.
+
+**Android (KWGT)**
+
+1. Instala [KWGT](https://play.google.com/store/apps/details?id=org.kustom.widget).
+2. En Pocky: Ajustes → Widget → **Android: copiar fórmula**.
+3. Añade un widget de KWGT (4×2) a la pantalla de inicio y tócalo → crea uno vacío → **+** → **Imagen**.
+4. En **Bitmap** marca la casilla, pulsa la calculadora de arriba (fórmula), pega y guarda. El tamaño se ajusta con «Ancho».
+
+Lo copiado lleva la clave del hogar: quien lo tenga puede ver cómo está la mascota (nada más). La clave sale de `CRON_SECRET`; si se cambia esa variable hay que volver a copiar.
 
 ---
 
@@ -193,7 +210,7 @@ Scriptable lee Firebase directamente y muestra el estado de Pocky en tu pantalla
 | **2 — Deploy** | 🔜 | Vercel + tu dominio, cron de degradación 24/7 |
 | **3 — PWA** | 🔜 | Instalar en iPhone desde Safari |
 | **4 — APK Android** | 🔜 | Capacitor → APK con widget nativo |
-| **5 — Widget iPhone** | 🔜 | Scriptable lee Firebase |
+| **5 — Widget** | ✅ Lista | Imagen de `/api/widget` en Scriptable (iPhone) y KWGT (Android) |
 | **6 — Notificaciones** | 🔜 | Firebase Cloud Messaging push 24/7 |
 | **7 — Personalización** | 🔜 | Nombre, especie, accesorios, historial |
 

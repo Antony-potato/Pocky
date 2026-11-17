@@ -1,17 +1,18 @@
 'use client';
-import { useState } from 'react';
-import { X, MapPin, Search, Copy, RefreshCw, Crown, Bell, LogOut, ShieldCheck, Home, Plus, Check } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { X, MapPin, Search, Copy, RefreshCw, Crown, Bell, LogOut, ShieldCheck, Home, Plus, Check, Smartphone } from 'lucide-react';
 import type { City, PetData } from '@/types/pet';
 import { auth, api } from '@/lib/firebase';
 import { usePetStore } from '@/store/petStore';
 import { searchCity, cityHere } from '@/lib/weather';
 import { PILL } from './CircularStats';
 import { HOME_KEY, switchHome } from '@/lib/home';
+import { scriptableCode, kwgtFormula } from '@/lib/widget';
 
 const ROW = 'rounded-xl bg-white/[0.07] text-white text-sm font-extrabold px-3 py-2.5 flex items-center gap-2 active:scale-95 transition-transform disabled:opacity-50';
 const H3 = 'text-white/50 text-xs font-black uppercase tracking-wider';
 
-/** Ajustes: ciudad del clima, hogar (código de invitación y quién está), avisos y cuenta. */
+/** Ajustes: ciudad del clima, hogar (código de invitación y quién está), widget, avisos y cuenta. */
 export default function Settings({ pet, petId, homes, me, admin, onNotifications, onClose }: {
   pet: PetData; petId: string; homes: { id: string; name: string }[]; me: { uid: string; email: string }; admin: boolean;
   onNotifications: () => void; onClose: () => void;
@@ -20,6 +21,11 @@ export default function Settings({ pet, petId, homes, me, admin, onNotifications
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const members = Object.entries(pet.members ?? {}).sort((a, b) => a[1].joinedAt - b[1].joinedAt);
+  // Enlace del widget de este hogar. Se pide al abrir y no al pulsar: Safari solo deja copiar en el mismo toque.
+  const [widget, setWidget] = useState('');
+  const [copied, setCopied] = useState('');
+  useEffect(() => { api<{ url: string }>('/api/home', { op: 'widget', petId }).then(r => setWidget(r.url), () => {}); }, [petId]);
+  const copy = (what: string, text: string) => navigator.clipboard?.writeText(text).then(() => setCopied(what), () => setMsg('No se pudo copiar.'));
 
   const run = async (work: () => Promise<unknown>, fail = '') => {
     setBusy(true); setMsg('');
@@ -98,6 +104,21 @@ export default function Settings({ pet, petId, homes, me, admin, onNotifications
             </button>
           ))}
           <a href="/?nuevo" className={ROW}><Plus size={16} className="text-emerald-400 shrink-0" /> Unirme a otro hogar o crear uno</a>
+
+          <h3 className={`${H3} mt-3`}>Widget</h3>
+          <p className="text-white/70 text-sm -mt-1.5">{pet.name} en tu pantalla de inicio: se ve cómo está y qué necesita. Se pone al día solo, más o menos cada 15 minutos.</p>
+          <button className={ROW} disabled={!widget} onClick={() => copy('ios', scriptableCode(widget, `${location.origin}/`))}>
+            <Smartphone size={16} className="text-sky-400 shrink-0" /> {copied === 'ios' ? '¡Copiado! Pégalo en Scriptable' : 'iPhone: copiar script'}
+          </button>
+          <button className={ROW} disabled={!widget} onClick={() => copy('android', kwgtFormula(widget))}>
+            <Smartphone size={16} className="text-emerald-400 shrink-0" /> {copied === 'android' ? '¡Copiado! Pégalo en KWGT' : 'Android: copiar fórmula'}
+          </button>
+          <details className="text-white/70 text-sm">
+            <summary className="font-bold text-white/85">Cómo se pone</summary>
+            <p className="mt-1.5"><b className="text-white">iPhone:</b> instala Scriptable (gratis), crea un script con el +, pega lo copiado y llámalo Pocky. En la pantalla de inicio mantén pulsado, Editar, Añadir widget, Scriptable (pequeño o mediano). Luego mantén pulsado el widget, Editar widget, y en Script elige Pocky.</p>
+            <p className="mt-1.5"><b className="text-white">Android:</b> instala KWGT, añade un widget suyo (4×2) y tócalo. Crea uno vacío, pulsa +, Imagen. En Bitmap marca la casilla, pulsa la calculadora de arriba para que sea fórmula, pega lo copiado y guarda.</p>
+            <p className="mt-1.5">No compartas lo copiado: quien lo tenga puede ver cómo está {pet.name}.</p>
+          </details>
 
           <h3 className={`${H3} mt-3`}>Este móvil</h3>
           <button className={ROW} onClick={onNotifications}><Bell size={16} fill="#fcd34d" color="#fcd34d" className="shrink-0" /> Activar notificaciones</button>

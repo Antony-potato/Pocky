@@ -1,4 +1,5 @@
 // Solo servidor (rutas /api): Admin SDK, que se salta las reglas de Firestore. No importar desde componentes.
+import { createHmac } from 'node:crypto';
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
@@ -36,6 +37,18 @@ export async function whoami(req: Request) {
       admin: t.email_verified === true && admins.includes(email),
     };
   } catch { return null; }
+}
+
+/**
+ * Clave del widget de un hogar (va en el enlace que piden Scriptable/KWGT): quien la tenga ve la imagen de esa
+ * mascota, nada más. Es un HMAC del id con CRON_SECRET: no se guarda en ningún sitio ni hace falta otra variable.
+ * ponytail: no se puede anular la de un solo hogar (cambiar CRON_SECRET las cambia todas, y hay que actualizarlo
+ * también en cron-job.org). Si hiciera falta, guardar una clave aleatoria en pets/{id} y renovarla como el código.
+ */
+export function widgetKey(petId: string) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) throw new Error('Falta CRON_SECRET');
+  return createHmac('sha256', secret).update(`widget:${petId}`).digest('base64url').slice(0, 22);
 }
 
 /** Error con mensaje para el usuario (los demás errores salen como 500 genérico). */

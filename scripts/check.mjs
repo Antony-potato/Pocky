@@ -304,4 +304,41 @@ assert.equal(weatherKind(61, 100), 'rain', 'la lluvia manda sobre las nubes');
   assert.equal(groundY(NODES.pier[0] + 3 * 0.8383, NODES.pier[1] - 3 * 0.5452), 0, 'a un lado del embarcadero no hay tablas');
 }
 
+// Widget: qué enseña la imagen y el script de Scriptable, ejecutado con su API simulada.
+{
+  const { widgetView } = await import('../src/lib/petLogic.ts');
+  const { scriptableCode, kwgtFormula } = await import('../src/lib/widget.ts');
+  const noon = utc(24, 18), fine = { ...DEFAULT_PET, hunger: 90, happiness: 90, cleanliness: 90, energy: 90, health: 100, lastUpdated: noon }; // 13:00 en Cancún
+  assert.deepEqual(widgetView(fine, noon), { look: 'happy', tone: 'ok', message: 'Pocky está feliz', streak: 0, bars: [90, 90, 90, 90, 100] });
+  const hungry = widgetView({ ...fine, hunger: 10 }, noon);
+  assert.ok(hungry.tone === 'need' && hungry.message.includes('hambri'));
+  assert.equal(widgetView({ ...fine, lastUpdated: noon - 10 * 3600000 }, noon).tone, 'need', '10 h sin guardar: el widget ya pide algo aunque el cron no haya pasado');
+  assert.equal(widgetView({ ...fine, health: 10 }, noon).look, 'sick');
+  const asleep = widgetView({ ...fine, isAsleep: true, hunger: 10 }, noon);
+  assert.deepEqual([asleep.look, asleep.tone, asleep.message], ['sleeping', 'sleep', 'Pocky está durmiendo']);
+  assert.equal(widgetView({ ...fine, poops: [{ at: noon - 1000, spot: 0 }] }, noon).message, '¡Hay caca en la isla!', 'sin emojis');
+
+  const AsyncFunction = (async () => {}).constructor;
+  const run = async (online, family) => {
+    const out = { files: {} };
+    const env = {
+      config: { runsInWidget: !!family, widgetFamily: family },
+      FileManager: { local: () => ({ cacheDirectory: () => '/c', joinPath: (a, b) => a + '/' + b, writeImage: (p, i) => { out.files[p] = i; }, fileExists: p => p in out.files, readImage: p => out.files[p] }) },
+      Request: class { constructor(u) { out.asked = u; } async loadImage() { if (!online) throw new Error('sin red'); return 'IMG'; } },
+      ListWidget: class { addText(t) { out.text = t; return {}; } async presentMedium() { out.shown = true; } },
+      Color: Object.assign(class {}, { white: () => 0 }), Font: { boldRoundedSystemFont: () => 0 },
+      Script: { setWidget: w => { out.widget = w; }, complete() {} },
+    };
+    await new AsyncFunction(...Object.keys(env), scriptableCode('https://x/api/widget?pet=a&k=b', 'https://x/'))(...Object.values(env));
+    return out;
+  };
+  const on = await run(true, 'small');
+  assert.ok(on.asked.startsWith('https://x/api/widget?pet=a&k=b&s=small&t='), on.asked);
+  assert.ok(on.widget.backgroundImage === 'IMG' && on.widget.url === 'https://x/' && on.widget.refreshAfterDate > Date.now());
+  const off = await run(false, 'medium');
+  assert.ok(off.asked.includes('&s=medium') && !off.widget.backgroundImage && off.text, 'sin red y sin copia guardada: lo dice, no revienta');
+  assert.ok((await run(true)).shown, 'abierto dentro de Scriptable: vista previa');
+  assert.ok(kwgtFormula('https://x/w?pet=a&k=b').startsWith('https://x/w?pet=a&k=b&s=medium&t=$'));
+}
+
 console.log('ok');

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { randomInt } from 'node:crypto';
 import { FieldValue } from 'firebase-admin/firestore';
-import { adminDb, whoami, Oops } from '@/lib/admin';
+import { adminDb, whoami, widgetKey, Oops } from '@/lib/admin';
 import { DEFAULT_MAX_MEMBERS, DEFAULT_MAX_HOMES, CODE_LENGTH, joinError, homesError, newCode, normalizeCode } from '@/lib/home';
 import { DEFAULT_PET } from '@/lib/petLogic';
 import type { PetData } from '@/types/pet';
@@ -108,6 +108,13 @@ export async function POST(req: Request) {
           return code;
         });
         return NextResponse.json({ inviteCode });
+      }
+
+      // Enlace de la imagen del widget de este hogar (lleva su clave): solo para quien vive en él.
+      case 'widget': {
+        const ref = petRef(body.petId), pet = (await ref.get()).data() as PetData | undefined;
+        if (!pet || !(me.uid in (pet.members ?? {}))) throw new Oops('Hogar desconocido.');
+        return NextResponse.json({ url: `${new URL(req.url).origin}/api/widget?pet=${ref.id}&k=${widgetKey(ref.id)}` });
       }
     }
     return NextResponse.json({ error: 'Operación desconocida.' }, { status: 400 });

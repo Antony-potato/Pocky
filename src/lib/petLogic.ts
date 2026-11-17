@@ -280,6 +280,27 @@ export function currentStreak(s: PetData, now = Date.now()): number {
   return s.streakDay === cancunDay(now) || s.streakDay === cancunDay(now - 86400000) ? s.streak ?? 0 : 0;
 }
 
+// ----- Widget de pantalla de inicio: lo que enseña la imagen de /api/widget -----
+const WIDGET_MOOD: Record<PetMood, string> = {
+  happy: 'está feliz', excited: 'está feliz', neutral: 'está bien', sad: 'está triste', sick: 'no se siente bien', sleeping: 'está durmiendo', grumpy: 'está de malas',
+};
+const EMOJI = new RegExp('[\\p{Extended_Pictographic}\\uFE0F]', 'gu'); // la imagen se pinta con una fuente sin emojis
+/**
+ * Cómo está la mascota ahora mismo, para el widget: aplica en memoria la degradación desde el último guardado (el
+ * cron pasa cada 15 min; así el widget no va con retraso) y no escribe nada. `look` = qué foto de Pocky toca.
+ */
+export function widgetView(pet: PetData, now = Date.now()) {
+  const s = { ...pet, ...applyTick(pet, now) }, mood = getMood(s, now);
+  const need = s.isAsleep ? undefined : getNeeds(s, now)[0]; // dormido no pide nada (igual que su bocadillo)
+  return {
+    look: s.isAsleep ? 'sleeping' : s.health < SICK ? 'sick' : mood === 'grumpy' ? 'grumpy' : mood === 'sad' || mood === 'sick' ? 'sad' : 'happy',
+    tone: s.isAsleep ? 'sleep' : need ? 'need' : 'ok',
+    message: (need?.message ?? `${s.name} ${WIDGET_MOOD[mood]}`).replace(EMOJI, '').trim(),
+    streak: currentStreak(s, now),
+    bars: [s.hunger, s.happiness, s.cleanliness, s.energy, s.health].map(Math.round),
+  } as const;
+}
+
 /** Campos que escriben los clientes. Nunca nombre, createdAt ni tokens (así no se pisan entre móviles). */
 export function syncedFields(s: PetData) {
   const { hunger, happiness, cleanliness, energy, health, mood, activity, isAsleep, lastUpdated, totalCaresGiven, activityUntil, lastCuddle, streak, streakDay,
